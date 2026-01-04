@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Activity, LayoutDashboard, Network, LogOut, Moon, Sun, MessageSquare, Settings, Plus } from "lucide-react"
-import { ApiKeysSettings } from "@/components/api-keys-settings"
+import { ApiKeysSettings } from "@/components/settings-keys"
 import { HoverIconButton } from "@/components/ui/hover-icon-button"
 
 export function Navbar() {
