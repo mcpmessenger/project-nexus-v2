@@ -1,5 +1,9 @@
 # Project Nexus v2
 
+<div align="center">
+  <img src="public/nexus2.svg" alt="Project Nexus Logo" width="400" />
+</div>
+
 > Transform workflows with AI-powered reliability. Enterprise-grade workflow orchestration powered by Apache Pulsar, LLM routing, and MCP integration.
 
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
