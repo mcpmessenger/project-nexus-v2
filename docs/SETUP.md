@@ -10,14 +10,15 @@ Complete setup guide for deploying Nexus Hub to Supabase.
 
 ## Step 1: Database Setup (SQL Editor)
 
-Run these SQL scripts in order via Supabase SQL Editor. All SQL files are in the project root:
+Run these SQL scripts in order via Supabase SQL Editor. All SQL files are in the `supabase/migrations/` directory:
 
-1. **Core Tables**: `CREATE_TABLES_WITH_LOGOS.sql`
-2. **Cache Tables**: `CREATE_CACHE_TABLES.sql`
-3. **Job Tables**: `CREATE_JOB_TABLES.sql`
-4. **Tool Permissions**: `CREATE_TOOL_PERMISSIONS.sql`
+1. **Core Tables**: `20240101000000_create_core_tables.sql`
+2. **Cache Tables**: `20240102000000_create_cache_tables.sql`
+3. **Job Tables**: `20240103000000_create_job_tables.sql`
+4. **Tool Permissions**: `20240104000000_create_tool_permissions.sql`
+5. **Stripe Billing**: `20240106000000_add_stripe_billing.sql` (optional, for monetization)
 
-**Note:** If tables already exist, use `ADD_LOGO_SUPPORT.sql` to add logo support.
+**Note:** If using migrations, run `supabase db reset` or apply migrations via Supabase Dashboard → SQL Editor.
 
 ## Step 2: Set Vault Encryption Key
 
@@ -38,15 +39,21 @@ supabase secrets set VAULT_ENCRYPTION_KEY=<your-key>
 
 Or via Dashboard: Settings → API → Secrets
 
-## Step 3: Deploy Edge Function
+## Step 3: Deploy Edge Functions
 
 **Important:** Run this in your own terminal (not agent mode) to avoid hanging:
 
 ```powershell
+# Deploy main hub function
 supabase functions deploy nexus-hub --no-verify-jwt --yes
+
+# Deploy Stripe customer creation function (if using billing)
+supabase functions deploy create-stripe-customer --no-verify-jwt --yes
 ```
 
-This deploys to: `https://<your-project-ref>.supabase.co/functions/v1/nexus-hub`
+This deploys to:
+- Nexus Hub: `https://<your-project-ref>.supabase.co/functions/v1/nexus-hub`
+- Stripe Customer: `https://<your-project-ref>.supabase.co/functions/v1/create-stripe-customer`
 
 ## Step 4: Configure Database for pg_net
 
@@ -75,6 +82,10 @@ Expected: `{"status":"healthy","timestamp":"..."}`
 ## Optional: Storage Setup for Logos
 
 See `docs/STORAGE_SETUP.md` for setting up Supabase Storage for server logos.
+
+## Optional: Stripe Billing Setup
+
+See `docs/STRIPE_SETUP.md` for complete Stripe metered billing integration guide.
 
 ## Troubleshooting
 

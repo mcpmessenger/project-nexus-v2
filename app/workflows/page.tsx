@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/components/auth-provider"
-import { Send, Image as ImageIcon, X, Loader2, Mic, ChevronDown, Sparkles } from "lucide-react"
+import { Send, Image as ImageIcon, X, Loader2, Mic, ChevronDown } from "lucide-react"
+import { HoverIconButton } from "@/components/ui/hover-icon-button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -477,7 +478,11 @@ export default function WorkflowsPage() {
               </Card>
               {message.role === "user" && (
                 <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage src={user?.avatar_url} alt={user?.name || "Guest"} />
+                  <AvatarImage 
+                    src={user?.avatar_url || "/placeholder-user.svg"} 
+                    alt={user?.name || "Guest"}
+                    className="dark:invert"
+                  />
                   <AvatarFallback className="text-xs text-foreground">
                     {user ? user.name.charAt(0).toUpperCase() : "G"}
                   </AvatarFallback>
@@ -540,23 +545,24 @@ export default function WorkflowsPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="flex gap-2 items-center">
+          <form onSubmit={handleSubmit} className="flex gap-2 items-center justify-center w-full max-w-4xl mx-auto">
             {/* Provider Selector - Left Side */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto gap-1.5 text-xs text-muted-foreground hover:text-foreground self-center"
+                <HoverIconButton
                   disabled={isLoading}
                   type="button"
+                  className="h-[60px] w-[60px] flex items-center justify-center gap-1.5 text-muted-foreground"
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span className="capitalize">
-                    {chatProvider === "openai" ? "OpenAI" : chatProvider === "anthropic" ? "Claude" : "Gemini"}
-                  </span>
+                  <Image 
+                    src="/brain_icon.png" 
+                    alt="AI Provider" 
+                    width={20} 
+                    height={20} 
+                    className="h-5 w-5 dark:invert"
+                  />
                   <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
+                </HoverIconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-40">
                 <DropdownMenuItem
@@ -594,7 +600,7 @@ export default function WorkflowsPage() {
                       : "Type your request, speak, or paste/drag an image..."
                 }
                 className={`min-h-[60px] max-h-[200px] resize-none ${
-                  isSpeechSupported ? "pr-24" : "pr-12"
+                  isSpeechSupported ? "pr-20" : "pr-12"
                 }`}
                 disabled={isLoading}
               />
@@ -609,44 +615,48 @@ export default function WorkflowsPage() {
                 className="hidden"
                 id="image-upload"
               />
-              <div className="absolute right-2 top-2 flex gap-1">
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 {isSpeechSupported && (
-                  <button
+                  <HoverIconButton
                     type="button"
                     onClick={handleToggleRecording}
-                    className={`p-2 rounded-md hover:bg-muted cursor-pointer transition-colors ${
-                      isRecording ? "bg-destructive/10 animate-pulse" : ""
-                    }`}
-                    title={isRecording ? "Stop recording" : "Start voice input"}
                     disabled={isLoading}
+                    className={`p-2 ${isRecording ? "bg-destructive/10 animate-pulse" : ""}`}
+                    title={isRecording ? "Stop recording" : "Start voice input"}
                   >
                     <Mic
                       className={`h-4 w-4 ${
                         isRecording ? "text-destructive" : "text-muted-foreground"
                       }`}
                     />
-                  </button>
+                  </HoverIconButton>
                 )}
-                <label
-                  htmlFor="image-upload"
-                  className="p-2 rounded-md hover:bg-muted cursor-pointer transition-colors"
-                  title="Upload image"
-                >
-                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                <label htmlFor="image-upload">
+                  <HoverIconButton
+                    type="button"
+                    className="p-2 cursor-pointer"
+                    title="Upload image"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      fileInputRef.current?.click()
+                    }}
+                  >
+                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                  </HoverIconButton>
                 </label>
               </div>
             </div>
-            <Button
+            <HoverIconButton
               type="submit"
               disabled={(!input.trim() && !uploadedImage) || isLoading}
-              className="h-[60px] px-4 sm:px-6"
+              className="h-[60px] w-[60px] flex items-center justify-center"
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Send className="h-4 w-4" />
               )}
-            </Button>
+            </HoverIconButton>
           </form>
         </div>
       </div>

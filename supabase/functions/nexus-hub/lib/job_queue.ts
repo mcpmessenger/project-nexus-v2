@@ -6,6 +6,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { getAllServers, getServerById } from "../servers/registry.ts";
 import { McpClient } from "./mcp_client.ts";
+import { reportToolCallUsage } from "./stripe_billing.ts";
 
 export interface JobParams {
   userId: string;
@@ -126,6 +127,20 @@ export async function executeJob(
           completed_at: new Date().toISOString()
         })
         .eq('id', jobId);
+
+      // Report usage to Stripe (non-blocking)
+      reportToolCallUsage(supabase, {
+        userId,
+        toolName,
+        serverId,
+        metadata: {
+          job_id: jobId,
+          sync: false,
+        },
+      }).catch((error) => {
+        console.error("Failed to report usage to Stripe:", error);
+        // Non-blocking - continue even if reporting fails
+      });
     } else {
       throw new Error(`Unsupported job type: ${jobType}`);
     }

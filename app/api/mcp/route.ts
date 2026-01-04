@@ -7,6 +7,7 @@ import {
   validateManagedServerConfig,
   getCachedToolSchema,
 } from "@/lib/mcpClient"
+import { reportToolCallUsage, logUsageEventToDatabase } from "@/lib/stripe-billing"
 
 const GOOGLE_GROUNDING_ID = "google-maps-grounding"
 
@@ -59,6 +60,39 @@ export async function POST(request: Request) {
         }
 
         const result = await client.call(payload.method, payload.params ?? {})
+        
+        // Report usage to Stripe (non-blocking)
+        // Extract user ID from session - for now using mock user, in production get from auth
+        const userId = payload.userId || "user-123" // TODO: Get from actual auth session
+        const serverId = config.id || "unknown"
+        const toolName = payload.method.replace("tools/call", "").replace("/", "") || "unknown"
+        
+        // Report usage asynchronously (don't await to avoid blocking response)
+        reportToolCallUsage({
+          userId,
+          toolName,
+          serverId,
+          metadata: {
+            method: payload.method,
+          },
+        }).then((usageResult) => {
+          if (usageResult.success && usageResult.stripeEventId) {
+            // Log to database with Stripe event ID
+            logUsageEventToDatabase({
+              userId,
+              toolName,
+              serverId,
+              stripeEventId: usageResult.stripeEventId,
+              metadata: {
+                method: payload.method,
+              },
+            })
+          }
+        }).catch((error) => {
+          console.error("Failed to report usage:", error)
+          // Non-blocking - continue even if reporting fails
+        })
+        
         return NextResponse.json({ result })
       }
 

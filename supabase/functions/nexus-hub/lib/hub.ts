@@ -9,6 +9,7 @@ import { getCachedTools } from "./cache.ts";
 import { McpClient } from "./mcp_client.ts";
 import { checkRateLimit } from "./rate_limiter.ts";
 import { createJob } from "./job_queue.ts";
+import { reportToolCallUsage } from "./stripe_billing.ts";
 import type { ToolSchema } from "./types.ts";
 
 /**
@@ -92,6 +93,19 @@ export async function invokeTool(
   
   try {
     const result = await client.invokeTool(actualToolName, params);
+    
+    // Report usage to Stripe (non-blocking)
+    reportToolCallUsage(supabase, {
+      userId,
+      toolName: actualToolName,
+      serverId,
+      metadata: {
+        sync: true,
+      },
+    }).catch((error) => {
+      console.error("Failed to report usage to Stripe:", error);
+      // Non-blocking - continue even if reporting fails
+    });
     
     return {
       result,

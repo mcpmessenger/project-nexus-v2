@@ -6,6 +6,7 @@ export interface User {
   name: string
   org_id: string
   avatar_url?: string
+  stripe_customer_id?: string
 }
 
 export interface Organization {
@@ -47,4 +48,36 @@ export interface TaskResult {
   error?: string
   duration_ms: number
   timestamp: string
+}
+
+export interface StripeCustomer {
+  id: string
+  stripe_customer_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface BillingUsageEvent {
+  id: string
+  user_id: string
+  stripe_event_id: string | null
+  tool_name: string
+  server_id: string
+  event_name: string
+  value: number
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface UserSubscription {
+  id: string
+  user_id: string
+  stripe_subscription_id: string | null
+  stripe_customer_id: string
+  status: "active" | "canceled" | "past_due" | "trialing" | "incomplete" | "incomplete_expired" | "unpaid"
+  current_period_start: string | null
+  current_period_end: string | null
+  plan_type: "free" | "premium" | "enterprise"
+  created_at: string
+  updated_at: string
 }
