@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { Suspense } from "react"
 import Image from "next/image"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,7 +43,7 @@ interface McpServer {
   naturalLanguageInChat?: boolean
 }
 
-export default function RegistryPage() {
+function RegistryPageContent() {
   const { user } = useAuth()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -626,5 +627,17 @@ function AddServerDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+export default function RegistryPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col gap-10 p-8">
+        <div className="text-sm text-muted-foreground">Loading...</div>
+      </div>
+    }>
+      <RegistryPageContent />
+    </Suspense>
   )
 }
