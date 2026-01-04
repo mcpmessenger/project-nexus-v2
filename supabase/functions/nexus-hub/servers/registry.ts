@@ -6,6 +6,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { decryptConfig } from "../lib/vault.ts";
 import { ensureMapsConfig } from "./maps.ts";
+import { ensurePlaywrightConfig } from "./playwright.ts";
 import type { ServerConfig, SystemServerRecord, UserServerRecord } from "../lib/types.ts";
 
 export interface ServerRecord {
@@ -47,6 +48,15 @@ export async function getAllServers(
           config = ensureMapsConfig(config);
         } catch (error) {
           console.error("Error configuring Maps server:", error);
+          continue; // Skip this server if config fails
+        }
+      }
+      
+      if (server.id === 'playwright') {
+        try {
+          config = ensurePlaywrightConfig(config);
+        } catch (error) {
+          console.error("Error configuring Playwright server:", error);
           continue; // Skip this server if config fails
         }
       }

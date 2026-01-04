@@ -20,7 +20,7 @@ import { ApiKeysSettings } from "@/components/settings-keys"
 import { HoverIconButton } from "@/components/ui/hover-icon-button"
 
 export function Navbar() {
-  const { user } = useAuth()
+  const { user, signOut } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const pathname = usePathname()
@@ -67,9 +67,11 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-2">
-          <HoverIconButton onClick={toggleTheme} className="h-9 w-9" title="Toggle theme">
-            {theme === "light" ? <Moon className="h-[18px] w-[18px]" /> : <Sun className="h-[18px] w-[18px]" />}
-          </HoverIconButton>
+          <div suppressHydrationWarning>
+            <HoverIconButton onClick={toggleTheme} className="h-9 w-9" title="Toggle theme">
+              {theme === "light" ? <Moon className="h-[18px] w-[18px]" /> : <Sun className="h-[18px] w-[18px]" />}
+            </HoverIconButton>
+          </div>
 
           {user ? (
             <DropdownMenu>
@@ -97,14 +99,23 @@ export function Navbar() {
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem className="text-destructive">
+                <DropdownMenuItem 
+                  className="text-destructive"
+                  onClick={() => signOut()}
+                >
                   <LogOut className="mr-2 h-4 w-4" />
                   Sign out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button size="sm">Sign in</Button>
+            <HoverIconButton 
+              onClick={() => setSettingsOpen(true)}
+              className="h-9 w-9"
+              title="Settings"
+            >
+              <Settings className="h-[18px] w-[18px]" />
+            </HoverIconButton>
           )}
         </div>
       </div>

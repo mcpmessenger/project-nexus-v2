@@ -1,12 +1,14 @@
 import { spawn } from "child_process"
+import { playwrightMcpManager } from "./playwright-client"
 
 type TransportType = "http" | "stdio"
 
 export interface ToolSchema {
-  id: string
+  id?: string
   name: string
   description?: string
   schema?: Record<string, unknown>
+  inputSchema?: Record<string, unknown> // MCP protocol uses inputSchema
   categories?: string[]
 }
 
@@ -97,7 +99,28 @@ export function getCachedToolSchema(serverId: string): ToolSchema[] | undefined 
     schemaCache.delete(serverId)
     return undefined
   }
+  // STRUCTURAL ENFORCEMENT: Filter browser_snapshot from cached tools for Playwright
+  if (serverId === 'playwright' && entry.schema) {
+    const filtered = entry.schema.filter(tool => tool.name !== 'browser_snapshot')
+    if (filtered.length !== entry.schema.length) {
+      console.log(`[MCP Client] Filtered browser_snapshot from cached Playwright tools`)
+      return filtered
+    }
+  }
   return entry.schema
+}
+
+/**
+ * Clear tool cache for a specific server (useful for forcing refresh after filtering changes)
+ */
+export function clearToolSchemaCache(serverId?: string): void {
+  if (serverId) {
+    schemaCache.delete(serverId)
+    console.log(`[MCP Client] Cleared tool cache for ${serverId}`)
+  } else {
+    schemaCache.clear()
+    console.log(`[MCP Client] Cleared all tool caches`)
+  }
 }
 
 export function cacheToolSchema(serverId: string, schema: ToolSchema[]) {
@@ -159,6 +182,11 @@ export class McpClient {
     }
 
     if (this.config.transport === "stdio") {
+      // Use persistent manager for Playwright to maintain browser context across calls
+      if (this.config.id === "playwright") {
+        return playwrightMcpManager.call(payload, this.config)
+      }
+      // Use stateless transport for other servers
       return callStdioTransport(this.config, payload)
     }
 
@@ -203,9 +231,14 @@ async function callStdioTransport(config: McpServerConfig, payload: JsonRpcEnvel
   }
 
   return new Promise<JsonRpcResponse>((resolve, reject) => {
-    const proc = spawn(config.command, config.args ?? [], {
+    // On Windows, npx needs to be run through the shell or as npx.cmd
+    const isWindows = process.platform === "win32"
+    const command = isWindows && config.command === "npx" ? "npx.cmd" : config.command
+    
+    const proc = spawn(command, config.args ?? [], {
       env: { ...process.env, ...(config.env ?? {}) },
       stdio: ["pipe", "pipe", "pipe"],
+      shell: isWindows, // Use shell on Windows to handle .cmd files properly
     })
 
     let stdout = ""
@@ -216,15 +249,23 @@ async function callStdioTransport(config: McpServerConfig, payload: JsonRpcEnvel
     })
 
     proc.stderr.on("data", (chunk) => {
-      stderr += chunk.toString()
+      const chunkStr = chunk.toString()
+      stderr += chunkStr
+      // Log stderr in real-time for debugging (especially useful for Playwright)
+      if (chunkStr.trim()) {
+        console.error(`[MCP Stdio] stderr from ${config.command}:`, chunkStr.trim())
+      }
     })
 
     proc.on("error", (err) => {
+      console.error(`[MCP Stdio] Process error for ${config.command}:`, err)
       reject(err)
     })
 
     proc.on("close", (code) => {
       if (code !== 0) {
+        console.error(`[MCP Stdio] Process exited with code ${code}. Command: ${config.command} ${(config.args || []).join(" ")}`)
+        console.error(`[MCP Stdio] stderr output:`, stderr.trim() || "<none>")
         reject(
           new Error(
             `Local MCP process exited with code ${code}. stderr: ${stderr.trim() || "<none>"}`
@@ -237,15 +278,19 @@ async function callStdioTransport(config: McpServerConfig, payload: JsonRpcEnvel
         const parsed = JSON.parse(stdout)
         resolve(parsed)
       } catch (error) {
+        console.error(`[MCP Stdio] Failed to parse JSON response. Command: ${config.command}`)
+        console.error(`[MCP Stdio] stdout (first 500 chars):`, stdout.substring(0, 500))
+        console.error(`[MCP Stdio] stderr:`, stderr.trim() || "<none>")
         reject(
           new Error(
-            `Unable to parse MCP stdio response: ${(error as Error).message}. Raw output: ${stdout}`
+            `Unable to parse MCP stdio response: ${(error as Error).message}. Raw output: ${stdout.substring(0, 200)}...`
           )
         )
       }
     })
 
-    proc.stdin.write(JSON.stringify(payload))
+    // MCP stdio protocol requires newline-delimited JSON
+    proc.stdin.write(JSON.stringify(payload) + "\n")
     proc.stdin.end()
   })
 }

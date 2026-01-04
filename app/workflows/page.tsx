@@ -66,6 +66,27 @@ interface Message {
   timestamp: Date
 }
 
+interface Server {
+  id: string
+  name: string
+  type: "system" | "user"
+  enabled: boolean
+  logoUrl?: string
+  description?: string
+}
+
+// Client-side only timestamp component to avoid hydration errors
+function MessageTimestamp({ timestamp }: { timestamp: Date }) {
+  const [formattedTime, setFormattedTime] = React.useState<string>("")
+  
+  React.useEffect(() => {
+    // Format timestamp only on client side
+    setFormattedTime(timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))
+  }, [timestamp])
+  
+  return <p className="mt-1.5 text-xs opacity-70">{formattedTime || ""}</p>
+}
+
 export default function WorkflowsPage() {
   const { user } = useAuth()
   const [messages, setMessages] = React.useState<Message[]>([])
@@ -77,10 +98,17 @@ export default function WorkflowsPage() {
   const [isRecording, setIsRecording] = React.useState(false)
   const [isSpeechSupported, setIsSpeechSupported] = React.useState(false)
   const [chatProvider, setChatProvider] = React.useState<"openai" | "anthropic" | "google">("openai")
+  const [servers, setServers] = React.useState<Server[]>([])
+  const [showAutocomplete, setShowAutocomplete] = React.useState(false)
+  const [autocompleteQuery, setAutocompleteQuery] = React.useState("")
+  const [selectedAutocompleteIndex, setSelectedAutocompleteIndex] = React.useState(0)
+  const [commandHistory, setCommandHistory] = React.useState<string[]>([])
+  const [historyIndex, setHistoryIndex] = React.useState(-1)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
   const recognitionRef = React.useRef<SpeechRecognition | null>(null)
+  const autocompleteRef = React.useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -89,6 +117,56 @@ export default function WorkflowsPage() {
   React.useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Update input when navigating command history
+  React.useEffect(() => {
+    if (historyIndex === -1) {
+      // At the bottom - clear input or restore original
+      setInput("")
+    } else if (historyIndex >= 0 && historyIndex < commandHistory.length) {
+      // Navigate to specific history entry
+      setInput(commandHistory[historyIndex])
+    }
+  }, [historyIndex, commandHistory])
+
+  // Load servers on mount
+  React.useEffect(() => {
+    const fetchServers = async () => {
+      try {
+        const response = await fetch("/api/servers")
+        const data = await response.json()
+        const allServers: Server[] = [
+          ...(data.system || []).filter((s: Server) => s.enabled),
+          ...(data.user || []).filter((s: Server) => s.enabled),
+        ]
+        setServers(allServers)
+      } catch (error) {
+        console.error("Error fetching servers:", error)
+      }
+    }
+    fetchServers()
+  }, [])
+
+  // Close autocomplete when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        autocompleteRef.current &&
+        !autocompleteRef.current.contains(event.target as Node) &&
+        textareaRef.current &&
+        !textareaRef.current.contains(event.target as Node)
+      ) {
+        setShowAutocomplete(false)
+      }
+    }
+
+    if (showAutocomplete) {
+      document.addEventListener("mousedown", handleClickOutside)
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside)
+      }
+    }
+  }, [showAutocomplete])
 
   // Load provider preference from localStorage
   React.useEffect(() => {
@@ -210,11 +288,12 @@ export default function WorkflowsPage() {
 
   // Parse API keys from natural language input
   const parseApiKeyFromText = (text: string): { provider: string; key: string } | null => {
+    // OpenAI keys can start with sk- or sk-proj- and contain alphanumeric, dashes, and underscores
     const openaiPatterns = [
-      /(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key\s+(?:is\s+)?(?:[:=]?\s*)?(sk-[a-zA-Z0-9]{20,})/i,
-      /set\s+(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key\s+(?:to\s+)?(?:[:=]?\s*)?(sk-[a-zA-Z0-9]{20,})/i,
-      /(?:openai|open\s+ai)\s+(?:api\s+)?key\s*[:=]\s*(sk-[a-zA-Z0-9]{20,})/i,
-      /(sk-[a-zA-Z0-9]{20,})\s+(?:is\s+)?(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key/i,
+      /(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key\s+(?:is\s+)?(?:[:=]?\s*)?(sk-[a-zA-Z0-9\-_]{20,})/i,
+      /set\s+(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key\s+(?:to\s+)?(?:[:=]?\s*)?(sk-[a-zA-Z0-9\-_]{20,})/i,
+      /(?:openai|open\s+ai)\s+(?:api\s+)?key\s*[:=]\s*(sk-[a-zA-Z0-9\-_]{20,})/i,
+      /(sk-[a-zA-Z0-9\-_]{20,})\s+(?:is\s+)?(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key/i,
     ]
     
     const anthropicPatterns = [
@@ -298,7 +377,22 @@ export default function WorkflowsPage() {
     }
 
     setMessages((prev) => [...prev, userMessage])
+    
+    // Add to command history (excluding API key inputs)
+    if (userInput.trim()) {
+      setCommandHistory((prev) => {
+        // Don't add duplicates if the last command is the same
+        if (prev.length > 0 && prev[prev.length - 1] === userInput) {
+          return prev
+        }
+        // Keep last 50 commands
+        const newHistory = [...prev, userInput]
+        return newHistory.slice(-50)
+      })
+    }
+    
     setInput("")
+    setHistoryIndex(-1) // Reset history index after submitting
     setIsLoading(true)
     
     // Convert image to base64 if needed
@@ -346,32 +440,42 @@ export default function WorkflowsPage() {
         }),
       })
 
-      const contentType = response.headers.get("content-type")
-      if (!response.ok) {
-        let errorMessage = "Failed to get response from API"
-        if (contentType && contentType.includes("application/json")) {
-          try {
-            const errorData = await response.json()
-            errorMessage = errorData.error || errorData.details || errorMessage
-            
-            if (errorMessage.includes("not yet") && errorMessage.includes("implemented")) {
-              const providerName = chatProvider === "openai" ? "OpenAI" 
-                : chatProvider === "anthropic" ? "Anthropic (Claude)" 
-                : "Google Gemini"
-              const keyPrefix = chatProvider === "openai" ? "sk-"
-                : chatProvider === "anthropic" ? "sk-ant-"
-                : "AIza"
+        const contentType = response.headers.get("content-type")
+        if (!response.ok) {
+          let errorMessage = "Failed to get response from API"
+          if (contentType && contentType.includes("application/json")) {
+            try {
+              const errorData = await response.json()
+              errorMessage = errorData.error || errorData.details || errorMessage
               
-              errorMessage = `${errorMessage}\n\nPlease provide your ${providerName} API key. You can:\n1. Type it here in the chat (e.g., "my ${chatProvider} key is ${keyPrefix}..."), or\n2. Go to Settings (click your avatar) to enter it.`
+              // Handle API key errors
+              if (errorMessage.includes("API key") || response.status === 401) {
+                const providerName = chatProvider === "openai" ? "OpenAI" 
+                  : chatProvider === "anthropic" ? "Anthropic (Claude)" 
+                  : "Google Gemini"
+                const keyPrefix = chatProvider === "openai" ? "sk-"
+                  : chatProvider === "anthropic" ? "sk-ant-"
+                  : "AIza"
+                
+                errorMessage = `${errorMessage}\n\nPlease provide your ${providerName} API key. You can:\n1. Type it here in the chat (e.g., "my ${chatProvider} key is ${keyPrefix}..."), or\n2. Go to Settings (click your avatar) to enter it.`
+              } else if (errorMessage.includes("not yet") && errorMessage.includes("implemented")) {
+                const providerName = chatProvider === "openai" ? "OpenAI" 
+                  : chatProvider === "anthropic" ? "Anthropic (Claude)" 
+                  : "Google Gemini"
+                const keyPrefix = chatProvider === "openai" ? "sk-"
+                  : chatProvider === "anthropic" ? "sk-ant-"
+                  : "AIza"
+                
+                errorMessage = `${errorMessage}\n\nPlease provide your ${providerName} API key. You can:\n1. Type it here in the chat (e.g., "my ${chatProvider} key is ${keyPrefix}..."), or\n2. Go to Settings (click your avatar) to enter it.`
+              }
+            } catch (e) {
+              errorMessage = `API Error: ${response.status} ${response.statusText}`
             }
-          } catch (e) {
-            errorMessage = `API Error: ${response.status} ${response.statusText}`
+          } else {
+            errorMessage = `API Error: ${response.status} ${response.statusText}. The server may need to be restarted.`
           }
-        } else {
-          errorMessage = `API Error: ${response.status} ${response.statusText}. The server may need to be restarted.`
+          throw new Error(errorMessage)
         }
-        throw new Error(errorMessage)
-      }
 
       if (!contentType || !contentType.includes("application/json")) {
         throw new Error("API returned non-JSON response. Please check the server.")
@@ -384,15 +488,18 @@ export default function WorkflowsPage() {
         id: crypto.randomUUID(),
         role: "assistant",
         content: data.content || "No response generated",
+        imageUrl: data.imageUrl || undefined, // Include image URL if present (e.g., from screenshots)
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, assistantMessage])
     } catch (error: any) {
       console.error("Error sending message:", error)
+      // Extract the actual error message, handling both Error objects and strings
+      const errorMsg = error?.message || error?.toString() || "Failed to process your request. Please try again."
       const errorMessage: Message = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: `Error: ${error.message || "Failed to process your request. Please try again."}`,
+        content: `Error: ${errorMsg}`,
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, errorMessage])
@@ -401,10 +508,145 @@ export default function WorkflowsPage() {
     }
   }
 
+  // Parse input for slash command autocomplete
+  React.useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    const cursorPos = textarea.selectionStart
+    const textBeforeCursor = input.substring(0, cursorPos)
+    
+    // Check if we're at a slash command (word starts with /)
+    const lastSlashIndex = textBeforeCursor.lastIndexOf("/")
+    const textAfterSlash = textBeforeCursor.substring(lastSlashIndex + 1)
+    
+    // Check if there's a space after the slash (meaning command is complete)
+    const hasSpaceAfterSlash = textAfterSlash.includes(" ") || textAfterSlash.includes("\n")
+    
+    if (lastSlashIndex >= 0 && !hasSpaceAfterSlash && cursorPos === textBeforeCursor.length) {
+      // We're in a slash command - extract query
+      const query = textAfterSlash.toLowerCase()
+      setAutocompleteQuery(query)
+      setShowAutocomplete(true)
+      setSelectedAutocompleteIndex(0)
+    } else {
+      setShowAutocomplete(false)
+    }
+  }, [input])
+
+  // Filter servers based on query
+  const filteredServers = React.useMemo(() => {
+    if (!autocompleteQuery) return servers
+    return servers.filter(server => 
+      server.name.toLowerCase().includes(autocompleteQuery) ||
+      server.id.toLowerCase().includes(autocompleteQuery)
+    )
+  }, [servers, autocompleteQuery])
+
+  // Reset selected index when filtered list changes
+  React.useEffect(() => {
+    if (selectedAutocompleteIndex >= filteredServers.length) {
+      setSelectedAutocompleteIndex(0)
+    }
+  }, [filteredServers.length, selectedAutocompleteIndex])
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Handle command history navigation (only when autocomplete is not showing)
+    if (!showAutocomplete && commandHistory.length > 0) {
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setHistoryIndex((prev) => {
+          if (prev === -1) {
+            // Starting navigation - save current input if it's not empty and different
+            const currentInput = input.trim()
+            if (currentInput && commandHistory[commandHistory.length - 1] !== currentInput) {
+              // Don't modify history here, just navigate to last entry
+            }
+            // Go to last command in history
+            return commandHistory.length - 1
+          } else if (prev > 0) {
+            // Navigate up in history
+            return prev - 1
+          }
+          // Already at the top
+          return prev
+        })
+        return
+      }
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setHistoryIndex((prev) => {
+          if (prev === -1) {
+            // Already at the bottom (new command)
+            return prev
+          } else if (prev < commandHistory.length - 1) {
+            // Navigate down in history
+            return prev + 1
+          } else {
+            // Reached the bottom - go back to new command
+            return -1
+          }
+        })
+        return
+      }
+    }
+
+    // Handle autocomplete navigation (when autocomplete is showing)
+    if (showAutocomplete && filteredServers.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setSelectedAutocompleteIndex(prev => 
+          prev < filteredServers.length - 1 ? prev + 1 : prev
+        )
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setSelectedAutocompleteIndex(prev => prev > 0 ? prev - 1 : 0)
+        return
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault()
+        const selectedServer = filteredServers[selectedAutocompleteIndex]
+        if (selectedServer) {
+          insertServerCommand(selectedServer.id)
+        }
+        return
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        setShowAutocomplete(false)
+        return
+      }
+    }
+    
+    if (e.key === "Enter" && !e.shiftKey && !showAutocomplete) {
       e.preventDefault()
       handleSubmit(e as any)
+    }
+  }
+
+  const insertServerCommand = (serverId: string) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    const cursorPos = textarea.selectionStart
+    const textBeforeCursor = input.substring(0, cursorPos)
+    const lastSlashIndex = textBeforeCursor.lastIndexOf("/")
+    
+    if (lastSlashIndex >= 0) {
+      const beforeSlash = input.substring(0, lastSlashIndex)
+      const afterCursor = input.substring(cursorPos)
+      const newInput = `${beforeSlash}/${serverId} ${afterCursor}`
+      setInput(newInput)
+      setShowAutocomplete(false)
+      
+      // Set cursor position after the inserted command
+      setTimeout(() => {
+        const newCursorPos = lastSlashIndex + serverId.length + 2 // +1 for /, +1 for space
+        textarea.focus()
+        textarea.setSelectionRange(newCursorPos, newCursorPos)
+      }, 0)
     }
   }
 
@@ -462,18 +704,18 @@ export default function WorkflowsPage() {
               >
                 <CardContent className="py-2 px-3">
                   {message.imageUrl && (
-                    <div className="mb-2">
+                    <div className="mb-3">
                       <img
                         src={message.imageUrl}
-                        alt="Uploaded"
-                        className="max-h-48 w-auto rounded-lg object-contain"
+                        alt={message.role === "assistant" ? "Screenshot" : "Uploaded image"}
+                        className="max-h-96 w-auto rounded-lg object-contain border border-border shadow-sm"
                       />
                     </div>
                   )}
-                  <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
-                  <p className="mt-1.5 text-xs opacity-70">
-                    {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </p>
+                  {message.content && (
+                    <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+                  )}
+                  <MessageTimestamp timestamp={message.timestamp} />
                 </CardContent>
               </Card>
               {message.role === "user" && (
@@ -604,6 +846,44 @@ export default function WorkflowsPage() {
                 }`}
                 disabled={isLoading}
               />
+              {showAutocomplete && filteredServers.length > 0 && (
+                <div
+                  ref={autocompleteRef}
+                  className="absolute bottom-full left-0 right-0 mb-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto"
+                >
+                  {filteredServers.map((server, index) => (
+                    <div
+                      key={server.id}
+                      onClick={() => insertServerCommand(server.id)}
+                      className={`px-3 py-2 cursor-pointer flex items-center gap-2 hover:bg-accent transition-colors ${
+                        index === selectedAutocompleteIndex ? "bg-accent" : ""
+                      }`}
+                      onMouseEnter={() => setSelectedAutocompleteIndex(index)}
+                    >
+                      {server.logoUrl && (
+                        <img
+                          src={server.logoUrl}
+                          alt={server.name}
+                          className="w-4 h-4 object-contain flex-shrink-0"
+                          onError={(e) => {
+                            // Hide image if it fails to load
+                            e.currentTarget.style.display = 'none'
+                          }}
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm">{server.name}</div>
+                        {server.description && (
+                          <div className="text-xs text-muted-foreground truncate">
+                            {server.description}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground flex-shrink-0">/{server.id}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"

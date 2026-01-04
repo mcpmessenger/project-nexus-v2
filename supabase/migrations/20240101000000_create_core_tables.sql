@@ -40,6 +40,9 @@ CREATE INDEX IF NOT EXISTS idx_user_servers_enabled ON user_servers(user_id, ena
 ALTER TABLE user_servers ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Users can only access their own servers
+-- Drop policy if it exists to make migration idempotent
+DROP POLICY IF EXISTS "Users can only access their own servers" ON user_servers;
+
 CREATE POLICY "Users can only access their own servers"
   ON user_servers
   FOR ALL
@@ -55,6 +58,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to update updated_at on user_servers
+-- Drop trigger if it exists to make migration idempotent
+DROP TRIGGER IF EXISTS update_user_servers_updated_at ON user_servers;
+
 CREATE TRIGGER update_user_servers_updated_at
   BEFORE UPDATE ON user_servers
   FOR EACH ROW
@@ -65,7 +71,7 @@ INSERT INTO system_servers (id, name, config, enabled, rate_limit_per_minute, lo
   ('brave', 'Brave Search', '{"transport": "http", "url": "https://api.search.brave.com/res/v1/web/search"}', true, 60, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/brave/brave-original.svg'),
   ('maps', 'Google Maps Grounding', '{"transport": "http", "url": "https://mapstools.googleapis.com/mcp"}', true, 100, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg'),
   ('github', 'GitHub', '{"transport": "http", "url": "https://api.github.com"}', true, 60, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg'),
-  ('playwright', 'Playwright', '{"transport": "http", "url": "ws://localhost:3001"}', true, 10, 'https://playwright.dev/img/playwright-logo.svg')
+  ('playwright', 'Playwright', '{"transport": "stdio", "command": "npx", "args": ["@playwright/mcp@latest", "--headless"]}', true, 10, 'https://playwright.dev/img/playwright-logo.svg')
 ON CONFLICT (id) DO NOTHING;
 
 COMMENT ON TABLE system_servers IS 'Pre-configured system MCP servers available to all users';

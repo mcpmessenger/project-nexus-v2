@@ -1,58 +1,33 @@
 /**
- * Playwright Adapter
- * Handles Playwright browser automation via external provider (Browserless.io)
+ * Playwright MCP Adapter
+ * Handles Playwright browser automation via official Playwright MCP server
+ * Uses stdio transport with npx @playwright/mcp@latest
  */
 
 import type { ServerConfig } from "../lib/types.ts";
 
 /**
- * Playwright server configuration
- * Requires WebSocket endpoint to browser provider
+ * Ensure Playwright MCP config uses stdio transport with npx command and headless mode
+ * Headless mode prevents browser window flashing and reduces resource contention on Windows
  */
-export interface PlaywrightConfig extends ServerConfig {
-  wsEndpoint?: string; // WebSocket endpoint to browser instance
-  browserlessUrl?: string; // Browserless.io URL if using that service
-}
+export function ensurePlaywrightConfig(config: ServerConfig): ServerConfig {
+  // If config already has stdio transport with command, ensure headless is included
+  if (config.transport === "stdio" && config.command === "npx" && config.args?.includes("@playwright/mcp@latest")) {
+    // Ensure --headless flag is present
+    const args = config.args || []
+    if (!args.includes("--headless")) {
+      return {
+        ...config,
+        args: [...args, "--headless"],
+      }
+    }
+    return config
+  }
 
-/**
- * Create Playwright adapter config
- */
-export function createPlaywrightConfig(config?: Partial<PlaywrightConfig>): PlaywrightConfig {
-  const wsEndpoint = config?.wsEndpoint || 
-                    Deno.env.get("PLAYWRIGHT_WS_ENDPOINT") ||
-                    "ws://localhost:3001";
-
+  // Default to stdio transport with npx command and headless mode
   return {
-    transport: "http",
-    url: wsEndpoint.replace("ws://", "http://").replace("wss://", "https://"),
-    wsEndpoint,
-    ...config,
+    transport: "stdio",
+    command: "npx",
+    args: ["@playwright/mcp@latest", "--headless"],
   };
-}
-
-/**
- * Playwright operations are handled via WebSocket connections
- * This adapter provides the configuration structure
- * Actual browser automation would be handled by a separate service
- */
-export class PlaywrightAdapter {
-  private config: PlaywrightConfig;
-
-  constructor(config: PlaywrightConfig) {
-    this.config = config;
-  }
-
-  /**
-   * Get WebSocket endpoint
-   */
-  getWsEndpoint(): string {
-    return this.config.wsEndpoint || "";
-  }
-
-  /**
-   * Get configuration
-   */
-  getConfig(): PlaywrightConfig {
-    return this.config;
-  }
 }

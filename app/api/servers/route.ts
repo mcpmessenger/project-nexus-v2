@@ -29,9 +29,9 @@ export async function GET() {
       type: "system" as const,
       enabled: true,
       logoUrl: "/images/playwright.png",
-      transport: "http" as const,
+      transport: "stdio" as const,
       rateLimit: 10,
-      description: "Browser automation and web scraping",
+      description: "Browser automation and web scraping using Playwright MCP",
     },
     {
       id: "github",

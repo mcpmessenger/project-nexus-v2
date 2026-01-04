@@ -286,7 +286,7 @@ const KNOWN_SERVERS: Record<string, { url: string; requiresApiKey?: boolean }> =
   "brave search": { url: "https://api.search.brave.com/res/v1/web/search", requiresApiKey: true },
   "brave": { url: "https://api.search.brave.com/res/v1/web/search", requiresApiKey: true },
   "github": { url: "https://api.github.com", requiresApiKey: true },
-  "playwright": { url: "ws://localhost:3001", requiresApiKey: false },
+  "playwright": { url: "http://localhost:8931/mcp", requiresApiKey: false },
 }
 
 function AddServerDialog({ 

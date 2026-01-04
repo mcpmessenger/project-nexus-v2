@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     default: "Nexus - Intelligent Workflow Orchestration",
     template: "%s | Nexus",
   },
-  description: "Multi-tenant event-driven orchestrator powered by Apache Pulsar. Route messages with LLM intelligence, process documents with modern AI vision, and execute tools via MCP. Enterprise-grade workflow automation with real-time monitoring.",
+  description: "Nexus - Intelligent workflow orchestration platform. Multi-tenant event-driven orchestrator powered by Apache Pulsar. Route messages with LLM intelligence, process documents with modern AI vision, and execute tools via MCP. Enterprise-grade workflow automation with real-time monitoring and AI-powered tool execution.",
   keywords: [
     "workflow orchestration",
     "event-driven architecture",
@@ -82,7 +82,12 @@ export const metadata: Metadata = {
     icon: [
       {
         url: "/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png",
-        sizes: "any",
+        sizes: "32x32",
+        type: "image/png",
+      },
+      {
+        url: "/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png",
+        sizes: "192x192",
         type: "image/png",
       },
       {
