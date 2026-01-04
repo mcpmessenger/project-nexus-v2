@@ -142,7 +142,7 @@ Comprehensive documentation is available in the `docs/` directory:
 
 ## Contributing
 
-We welcome contributions! Here's how you can help:
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for detailed guidelines. Here's a quick overview:
 
 ### Getting Started
 
