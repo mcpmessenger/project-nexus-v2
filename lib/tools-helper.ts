@@ -2,6 +2,36 @@ import OpenAI from 'openai'
 import { McpClient, buildMcpConfig, type McpRouteConfigInput, type ToolSchema, ensureManagedGoogleConfig, validateManagedServerConfig } from './mcpClient'
 import { supabase } from './supabase-client'
 
+/**
+ * Get the authenticated GitHub user's username from the token
+ */
+async function getGitHubUsername(): Promise<string | null> {
+  const token = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN
+  if (!token) {
+    return null
+  }
+
+  try {
+    const response = await fetch('https://api.github.com/user', {
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json',
+      },
+    })
+
+    if (!response.ok) {
+      console.warn(`[Tools Helper] Failed to get GitHub user: ${response.status} ${response.statusText}`)
+      return null
+    }
+
+    const user = await response.json()
+    return user.login || null
+  } catch (error) {
+    console.error(`[Tools Helper] Error getting GitHub user:`, error)
+    return null
+  }
+}
+
 
 interface SystemServer {
   id: string
@@ -64,6 +94,39 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput): McpRo
       transport: 'stdio',
       command: 'npx',
       args: ['@playwright/mcp@latest', '--headless', '--isolated'],
+    }
+  }
+  
+  if (serverId === 'github') {
+    // GitHub MCP server uses stdio transport
+    // The MCP server requires GITHUB_PERSONAL_ACCESS_TOKEN as an environment variable
+    // Reference: https://github.com/github/github-mcp-server
+    // The server can be run via:
+    // 1. Binary: github-mcp-server (if installed globally or in PATH)
+    // 2. Docker: ghcr.io/github/github-mcp-server
+    // 3. npx: @modelcontextprotocol/server-github (if available as npm package)
+    const apiKey = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN
+    if (!apiKey) {
+      console.warn(`[Tools Helper] Warning: GITHUB_PERSONAL_ACCESS_TOKEN environment variable not set. GitHub tools will not work without a token.`)
+      // Try to use npx first, fallback to binary name
+      return {
+        ...config,
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+      }
+    }
+    // Try npx first (if package exists), otherwise use binary name
+    // The binary should be in PATH if installed via GitHub releases
+    return {
+      ...config,
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: {
+        ...(config.env || {}),
+        GITHUB_PERSONAL_ACCESS_TOKEN: apiKey,
+      },
     }
   }
   
@@ -186,6 +249,18 @@ async function fetchToolsFromServer(server: SystemServer): Promise<ToolSchema[]>
         return []
       }
       console.log(`[Tools Helper] ✅ BRAVE_API_KEY is set (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...)`)
+    }
+    
+    // Special check for GitHub - verify API key is set before attempting to connect
+    if (server.id === 'github') {
+      const apiKey = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN
+      if (!apiKey) {
+        console.error(`[Tools Helper] ❌ GITHUB_PERSONAL_ACCESS_TOKEN environment variable is not set! GitHub tools will not be available.`)
+        console.error(`[Tools Helper] Please set GITHUB_PERSONAL_ACCESS_TOKEN in your .env.local file and restart the dev server.`)
+        console.error(`[Tools Helper] Get a token at: https://github.com/settings/tokens`)
+        return []
+      }
+      console.log(`[Tools Helper] ✅ GITHUB_PERSONAL_ACCESS_TOKEN is set (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...)`)
     }
     
     let config = server.config as McpRouteConfigInput
@@ -311,6 +386,26 @@ export async function getAvailableToolsAsOpenAIFunctions(): Promise<
         }
       }
       
+      // Log all GitHub tool names for debugging
+      if (server.id === 'github') {
+        if (tools.length === 0) {
+          console.warn(`[Tools Helper] ⚠️ GitHub returned 0 tools! This usually means the MCP server failed to start. Check if GITHUB_PERSONAL_ACCESS_TOKEN is set.`)
+        } else {
+          const toolNames = tools.map(t => t.name).sort()
+          console.log(`[Tools Helper] GitHub tool names: ${toolNames.join(', ')}`)
+          // The GitHub MCP server uses search_repositories (not list_repositories) for listing/searching repos
+          const searchReposTool = tools.find(t => t.name === 'search_repositories' || (t.name.includes('search') && t.name.includes('repo')))
+          if (searchReposTool) {
+            console.log(`[Tools Helper] ✅ Found search repositories tool: ${searchReposTool.name} (will be namespaced as github_${searchReposTool.name})`)
+            // Log the tool schema to understand what parameters it accepts
+            const schema = (searchReposTool.schema as any) || (searchReposTool as any).inputSchema || {}
+            console.log(`[Tools Helper] search_repositories tool schema:`, JSON.stringify(schema, null, 2))
+          } else {
+            console.warn(`[Tools Helper] ⚠️ Could not find search_repositories tool in GitHub tools`)
+          }
+        }
+      }
+      
       for (const tool of tools) {
         try {
           // STRUCTURAL ENFORCEMENT: Hard filter - Remove browser_snapshot entirely from tool list
@@ -414,6 +509,33 @@ export async function invokeToolByName(
     enhancedArgs = enhancePlaywrightNavigationArgs(toolName, args)
     if (JSON.stringify(enhancedArgs) !== JSON.stringify(args)) {
       console.log(`[Tools Helper] Enhanced Playwright navigation args:`, enhancedArgs)
+    }
+  }
+  
+  // GitHub-specific: Fix "user:me", "user:ACTUAL_USERNAME", or empty queries to use actual authenticated username
+  if (serverId === 'github' && toolName === 'search_repositories') {
+    const query = enhancedArgs.query ? String(enhancedArgs.query) : ''
+    // Check if query contains placeholder text, "user:me", is empty, or needs the actual username
+    const needsFix = !query || 
+                     query.trim() === '' ||
+                     query.includes('user:me') || 
+                     query === 'user:me' || 
+                     query.includes('user:@me') ||
+                     query.includes('ACTUAL_USERNAME') ||
+                     query.includes('USERNAME') && query.includes('user:')
+    
+    if (needsFix) {
+      console.log(`[Tools Helper] 🔧 Intercepting GitHub search_repositories with query: "${query}", fetching actual username...`)
+      const actualUsername = await getGitHubUsername()
+      if (actualUsername) {
+        // Use the actual username in the query
+        const fixedQuery = `user:${actualUsername}`
+        enhancedArgs = { ...enhancedArgs, query: fixedQuery }
+        console.log(`[Tools Helper] ✅ Fixed query from "${query}" to "${fixedQuery}"`)
+      } else {
+        console.warn(`[Tools Helper] ⚠️ Could not get GitHub username from token. Check if GITHUB_PERSONAL_ACCESS_TOKEN is set correctly.`)
+        // Still try with the original query, but log the issue
+      }
     }
   }
   

@@ -186,6 +186,10 @@ export class McpClient {
     }
 
     if (this.config.transport === "stdio") {
+      // Validate stdio config has required fields
+      if (!this.config.command) {
+        throw new Error("Stdio transport requires a command to execute")
+      }
       // Use persistent manager for Playwright to maintain browser context across calls
       if (this.config.id === "playwright") {
         return playwrightMcpManager.call(payload, this.config)
@@ -194,6 +198,11 @@ export class McpClient {
       return callStdioTransport(this.config, payload)
     }
 
+    // HTTP/SSE transport requires a valid URL
+    if (!this.config.url) {
+      throw new Error("HTTP transport requires a target URL")
+    }
+    
     return callSseTransport(this.config, payload)
   }
 

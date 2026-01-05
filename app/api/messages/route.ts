@@ -150,7 +150,30 @@ Examples:
 - User says "take a screenshot of example.com" → 
   1. Call playwright_browser_navigate with url="https://example.com"
   2. Call playwright_browser_take_screenshot (NO arguments needed - this is MANDATORY for screenshots)
-- User says "/github list repos" → Call github_list_repositories
+🚨 CRITICAL FOR GITHUB - READ THIS FIRST (HIGHEST PRIORITY):
+- When a user types "/github" followed by ANY text, they want you to use GitHub MCP tools to interact with GitHub
+- DO NOT use Brave Search, DO NOT use Playwright, DO NOT provide web search results when users type "/github"
+- DO NOT provide general knowledge or documentation links when users type "/github"
+- You MUST call the GitHub MCP tools to get real GitHub data
+- GitHub MCP server provides many tools. Tool names are prefixed with "github_" when available (e.g., github_list_repositories, github_get_repository, github_search_code, github_get_file_contents, github_list_issues, github_create_issue, etc.)
+- When users type "/github" followed by a request, identify the appropriate GitHub tool and call it
+- IMPORTANT: To list repositories, use the tool github_search_repositories. The GitHub MCP server does NOT have a list_repositories tool - it uses search_repositories instead. DO NOT use github_list_issues when the user asks to list repositories - that's for listing issues, not repositories.
+- CRITICAL: When the user asks to list "my repositories", you MUST first get the authenticated user's actual GitHub username. The GitHub search API does NOT support "user:me" - you need the real username. To get the authenticated user's username, make a direct HTTP request to the GitHub API: GET https://api.github.com/user with the Authorization header. The response will contain a "login" field with the username. Then use that username in the search query: {"query": "user:ACTUAL_USERNAME"}.
+- Examples:
+  * User says "/github list my repositories" or "/github list repositories" → First, make an HTTP request to https://api.github.com/user to get the authenticated user's GitHub username (the "login" field). Then call github_search_repositories with {"query": "user:ACTUAL_USERNAME"} where ACTUAL_USERNAME is the real GitHub username from the API response. DO NOT use "user:me" or the literal string "USERNAME" - that will fail. DO NOT call github_list_issues - that's the wrong tool.
+  * User says "/github get info about github/github-mcp-server" → Call github_get_repository with owner="github" and repo="github-mcp-server"
+  * User says "/github search for MCP in code" → Call github_search_code with query="MCP"
+  * User says "/github get README from github/github-mcp-server" → Call github_get_file_contents with owner="github", repo="github-mcp-server", path="README.md"
+  * User says "/github list issues in github/github-mcp-server" → Call github_list_issues with owner="github" and repo="github-mcp-server"
+- DO NOT respond with web search results or documentation links when users explicitly use "/github" - you MUST call the GitHub MCP tools
+- DO NOT call unrelated tools (like list_issues) when the user asks to list repositories - find and use the correct repository listing tool
+- GitHub tools return structured data (repository info, file contents, issues, etc.) - present this data to the user in a clear, formatted way
+- If a GitHub tool call fails or returns an error, explain the error to the user clearly. Do NOT just say "Tool execution completed" - always explain what happened
+- If a GitHub tool returns empty results, explain that to the user (e.g., "The tool returned no repositories. This might mean you need to authenticate or the tool requires different parameters.")
+- If a GitHub tool call succeeds but returns data, present that data to the user in a helpful, readable format
+- NEVER respond with just "Tool execution completed" - always provide context about what the tool did and what it returned
+- If a GitHub tool call fails, check the error message and try alternative tool names or parameters. Do NOT fall back to web search or other tools.
+
 - User says "/brave X" (e.g., "/brave ai developments in late 2025") → IMMEDIATELY call brave_web_search with query="X" (e.g., query="ai developments in late 2025")
 - User says "/brave search for X" or "search for X using Brave" → Use Brave Search MCP tools (brave_web_search, brave_image_search, brave_news_search, or brave_summarizer)
 - User says "find coffee shops in Des Moines" → Call maps_search_places with appropriate parameters to get actual place data
@@ -172,7 +195,14 @@ Examples:
 - DO NOT use playwright_browser_navigate or playwright_browser_take_screenshot when users type "/brave" - use brave_web_search instead
 - Brave Search returns web search results with titles, URLs, and snippets - present these to the user in a helpful format
 
-ALWAYS use function calling when tools are available. Never write code examples when you can use the tools directly. Always call the actual API tools to get real data, not just return links or generic responses.`
+ALWAYS use function calling when tools are available. Never write code examples when you can use the tools directly. Always call the actual API tools to get real data, not just return links or generic responses.
+
+CRITICAL: When you call tools and receive results, you MUST explain what happened:
+- If a tool succeeds and returns data, present that data to the user in a clear, helpful format
+- If a tool fails or returns an error, explain the error clearly to the user
+- If a tool returns empty results, explain why that might be (e.g., authentication needed, wrong parameters, etc.)
+- NEVER respond with just "Tool execution completed" or similar generic messages - always provide context about what the tool did and what it returned
+- Always interpret tool results and present them in a user-friendly way`
     })
 
     // Handle text content

@@ -39,9 +39,9 @@ export async function GET() {
       type: "system" as const,
       enabled: true,
       logoUrl: "/images/Octicons-mark-github.svg.png",
-      transport: "http" as const,
+      transport: "stdio" as const,
       rateLimit: 60,
-      description: "GitHub repository and code management",
+      description: "GitHub repository and code management via official GitHub MCP server",
     },
   ]
 

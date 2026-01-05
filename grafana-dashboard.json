@@ -1,0 +1,418 @@
+{
+  "dashboard": {
+    "title": "Project Nexus v2 - Worker Monitoring",
+    "tags": ["nexus", "workers", "pulsar", "monitoring"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5s",
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+        "type": "stat",
+        "title": "Total Workers",
+        "targets": [
+          {
+            "expr": "nexus_workers_total",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "unit": "short",
+            "decimals": 0
+          }
+        },
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 2,
+        "gridPos": { "h": 8, "w": 6, "x": 6, "y": 0 },
+        "type": "stat",
+        "title": "Active Workers",
+        "targets": [
+          {
+            "expr": "nexus_workers_active",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 1, "color": "green" }
+              ]
+            },
+            "unit": "short",
+            "decimals": 0
+          }
+        },
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 3,
+        "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+        "type": "stat",
+        "title": "Idle Workers",
+        "targets": [
+          {
+            "expr": "nexus_workers_idle",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "yellow" },
+                { "value": 1, "color": "blue" }
+              ]
+            },
+            "unit": "short",
+            "decimals": 0
+          }
+        },
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 4,
+        "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+        "type": "stat",
+        "title": "Error Workers",
+        "targets": [
+          {
+            "expr": "nexus_workers_error",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 1, "color": "red" }
+              ]
+            },
+            "unit": "short",
+            "decimals": 0
+          }
+        },
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 5,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "type": "timeseries",
+        "title": "Tasks Processed Over Time",
+        "targets": [
+          {
+            "expr": "rate(nexus_tasks_processed_total[5m])",
+            "refId": "A",
+            "legendFormat": "Tasks/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "ops",
+            "decimals": 2
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom"
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "type": "timeseries",
+        "title": "Failed Tasks Over Time",
+        "targets": [
+          {
+            "expr": "rate(nexus_tasks_failed_total[5m])",
+            "refId": "A",
+            "legendFormat": "Failed/sec"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 0.1, "color": "yellow" },
+                { "value": 1, "color": "red" }
+              ]
+            },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "ops",
+            "decimals": 2
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom"
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "type": "timeseries",
+        "title": "Workers by Type",
+        "targets": [
+          {
+            "expr": "nexus_workers_by_type",
+            "refId": "A",
+            "legendFormat": "{{type}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "short",
+            "decimals": 0
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom"
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      },
+      {
+        "id": 8,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "type": "timeseries",
+        "title": "Tasks Processed by Type",
+        "targets": [
+          {
+            "expr": "rate(nexus_tasks_processed_by_type[5m])",
+            "refId": "A",
+            "legendFormat": "{{type}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "ops",
+            "decimals": 2
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom"
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      },
+      {
+        "id": 9,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "type": "timeseries",
+        "title": "Task Failure Rate by Type",
+        "targets": [
+          {
+            "expr": "rate(nexus_tasks_failed_by_type[5m])",
+            "refId": "A",
+            "legendFormat": "{{type}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "thresholds" },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 0.1, "color": "yellow" },
+                { "value": 1, "color": "red" }
+              ]
+            },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "ops",
+            "decimals": 2
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom"
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      },
+      {
+        "id": 10,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+        "type": "table",
+        "title": "Individual Worker Status",
+        "targets": [
+          {
+            "expr": "nexus_worker_processed_tasks",
+            "refId": "A"
+          },
+          {
+            "expr": "nexus_worker_error_count",
+            "refId": "B"
+          },
+          {
+            "expr": "nexus_worker_last_heartbeat_seconds",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "auto"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "showHeader": true,
+          "sortBy": []
+        },
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "indexByName": {
+                "worker_id": 0,
+                "type": 1,
+                "status": 2,
+                "Value #A": 3,
+                "Value #B": 4,
+                "Value #C": 5
+              },
+              "renameByName": {
+                "Value #A": "Tasks Processed",
+                "Value #B": "Errors",
+                "Value #C": "Last Heartbeat"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+        "type": "timeseries",
+        "title": "Total Tasks Processed (Cumulative)",
+        "targets": [
+          {
+            "expr": "nexus_tasks_processed_total",
+            "refId": "A",
+            "legendFormat": "Total Processed"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "short",
+            "decimals": 0
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom"
+          },
+          "tooltip": {
+            "mode": "multi"
+          }
+        }
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    },
+    "links": []
+  }
+}
