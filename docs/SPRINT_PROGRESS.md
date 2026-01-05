@@ -30,6 +30,7 @@
 - ✅ Cache refresh on server changes
 - ✅ Google Maps adapter
 - ✅ Brave Search adapter
+- ✅ Playwright adapter
 
 ### Phase 5: Async Jobs & Rate Limiting
 - ✅ Job queue structure (job_results table, job_queue.ts)
@@ -80,14 +81,13 @@ supabase/
             ├── maps.ts
             ├── brave.ts
             ├── github.ts (stub)
-            └── playwright.ts (stub)
+            └── playwright.ts
 ```
 
 ## 🔄 Remaining Work
 
 ### High Priority:
 - [ ] GitHub adapter (full MCP tool integration - currently stub)
-- [ ] Playwright adapter (full MCP tool integration - currently stub)
 - [ ] Resources/Prompts endpoints (list_resources, list_prompts, get_resource, get_prompt)
 
 ### Medium Priority:
@@ -104,7 +104,7 @@ supabase/
 ## 🎯 Next Steps
 
 1. **Test current implementation** - Verify Edge Function works locally (including pg_net integration)
-2. **Complete server adapters** - Full MCP integration for GitHub and Playwright
+2. **Complete server adapters** - Full MCP integration for GitHub
 3. **Implement Resources/Prompts endpoints** - Add list_resources, list_prompts, get_resource, get_prompt
 4. **Frontend integration** - Connect Next.js directly to Edge Function (replace /api/mcp route)
 
@@ -117,5 +117,6 @@ supabase/
 - Rate limiting is implemented and integrated into tool invocations
 - Tool-level permissions table exists with filtering logic in cache.ts
 - Job queue structure exists with pg_net integration complete (createJob triggers async execution)
-- GitHub and Playwright adapters exist as stubs (need full MCP integration)
+- Google Maps, Brave Search, and Playwright adapters are fully implemented and working
+- GitHub adapter exists as a stub (needs full MCP integration)
 - Server adapters can be extended for additional services

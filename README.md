@@ -32,6 +32,17 @@ Project Nexus v2 is an enterprise-grade workflow orchestration platform that tra
 - **MCP Integration**: Execute tools via Model Context Protocol (Stripe payments, database operations, custom workflows)
 - **Real-Time Monitoring**: Track worker status, consumer lag, and task completion with Prometheus and Grafana
 
+## Supported MCP Servers
+
+Project Nexus v2 includes support for the following MCP servers:
+
+- **✅ Brave Search**: Web search using Brave Search API (stdio transport)
+- **✅ Google Maps Grounding**: Location search and mapping services (HTTP transport)
+- **✅ Playwright**: Browser automation and web scraping (stdio transport with headless mode)
+- **GitHub**: GitHub repository and code management (HTTP transport)
+
+All system servers are pre-configured and can be enabled/disabled through the monitoring dashboard. Custom MCP servers can be added via the server management interface.
+
 ## Tech Stack
 
 - **Framework**: Next.js 16 (React 19)
