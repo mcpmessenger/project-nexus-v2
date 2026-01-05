@@ -163,7 +163,8 @@ class PlaywrightMcpManager {
             errorMessage.includes("context closed") ||
             errorMessage.includes("target closed"))) {
           console.warn(`[Playwright MCP] Browser lock detected: ${errorMessage.substring(0, 200)}. Resetting process...`)
-          // Force cleanup - next call will spawn a fresh process
+          // Force cleanup - next call will spawn a fresh process with --isolated flag
+          // The --isolated flag should prevent this issue, but cleanup ensures clean state
           this.cleanup().catch(err => {
             console.error(`[Playwright MCP] Error during auto-recovery cleanup:`, err)
           })
@@ -234,10 +235,12 @@ class PlaywrightMcpManager {
     
     if (this.process && !this.process.killed) {
       this.process.kill('SIGTERM')
-      // Give it a moment to clean up gracefully
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Give it more time to clean up gracefully (browser processes need time to close)
+      await new Promise(resolve => setTimeout(resolve, 2000))
       if (this.process && !this.process.killed) {
         this.process.kill('SIGKILL')
+        // Wait a bit more after force kill
+        await new Promise(resolve => setTimeout(resolve, 1000))
       }
       this.process = null
     }
@@ -246,6 +249,10 @@ class PlaywrightMcpManager {
     this.processing = false
     this.stdoutBuffer = ""
     this.currentRequest = null
+    
+    // Add a small delay after cleanup to ensure browser processes are fully terminated
+    // This helps prevent "browser is already in use" errors on the next spawn
+    await new Promise(resolve => setTimeout(resolve, 500))
   }
 
   /**

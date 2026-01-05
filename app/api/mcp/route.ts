@@ -34,7 +34,8 @@ export async function POST(request: Request) {
 
   try {
     let config = buildMcpConfig(payload.config)
-    if (config.id === GOOGLE_GROUNDING_ID) {
+    // Check for both "maps" and "google-maps-grounding" server IDs
+    if (config.id === "maps" || config.id === GOOGLE_GROUNDING_ID) {
       config = ensureManagedGoogleConfig(config)
     }
 

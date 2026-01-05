@@ -1,65 +1,48 @@
 /**
- * Brave Search Adapter
- * Handles Brave Search API integration
+ * Brave Search MCP Adapter
+ * Handles Brave Search via official Brave Search MCP server
+ * Uses stdio transport with npx @brave/brave-search-mcp-server
+ * 
+ * Reference: https://github.com/brave/brave-search-mcp-server
  */
 
 import type { ServerConfig } from "../lib/types.ts";
-import { McpClient } from "../lib/mcp_client.ts";
-
-const BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
 
 /**
- * Create Brave Search server config
+ * Ensure Brave Search MCP config uses stdio transport with npx command
+ * Injects BRAVE_API_KEY from environment variables
  */
-export function createBraveConfig(apiKey?: string): ServerConfig {
-  const key = apiKey || Deno.env.get("BRAVE_API_KEY");
-  if (!key) {
-    throw new Error("Missing BRAVE_API_KEY environment variable or API key parameter");
+export function ensureBraveConfig(config: ServerConfig): ServerConfig {
+  const apiKey = Deno.env.get("BRAVE_API_KEY");
+  if (!apiKey) {
+    throw new Error("Missing BRAVE_API_KEY environment variable. Please set BRAVE_API_KEY in your environment.");
   }
 
+  // If config already has stdio transport with command, ensure API key is in args
+  if (config.transport === "stdio" && config.command === "npx" && config.args?.includes("@brave/brave-search-mcp-server")) {
+    const args = config.args || [];
+    // Check if API key is already in args
+    const apiKeyIndex = args.findIndex(arg => arg === "--brave-api-key");
+    if (apiKeyIndex !== -1 && args[apiKeyIndex + 1] === apiKey) {
+      // API key is already correctly set
+      return config;
+    }
+    // Remove old API key if present
+    const filteredArgs = args.filter((arg, idx) => 
+      arg !== "--brave-api-key" && (idx === 0 || args[idx - 1] !== "--brave-api-key")
+    );
+    // Add API key argument
+    return {
+      ...config,
+      args: [...filteredArgs, "--brave-api-key", apiKey],
+    };
+  }
+
+  // Default to stdio transport with npx command
+  // The MCP server requires --brave-api-key as a command-line argument
   return {
-    transport: "http",
-    url: BRAVE_SEARCH_URL,
-    headers: {
-      "X-Subscription-Token": key,
-      "Accept": "application/json",
-    },
+    transport: "stdio",
+    command: "npx",
+    args: ["-y", "@brave/brave-search-mcp-server", "--brave-api-key", apiKey],
   };
-}
-
-/**
- * Brave Search doesn't use MCP protocol directly
- * This is a wrapper that converts Brave API calls to MCP tool format
- */
-export class BraveSearchAdapter {
-  private apiKey: string;
-
-  constructor(apiKey?: string) {
-    this.apiKey = apiKey || Deno.env.get("BRAVE_API_KEY") || "";
-    if (!this.apiKey) {
-      throw new Error("Missing BRAVE_API_KEY");
-    }
-  }
-
-  /**
-   * Search using Brave API
-   */
-  async search(query: string, count: number = 10): Promise<unknown> {
-    const url = new URL(BRAVE_SEARCH_URL);
-    url.searchParams.set("q", query);
-    url.searchParams.set("count", count.toString());
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        "X-Subscription-Token": this.apiKey,
-        "Accept": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Brave API error: ${response.status} ${response.statusText}`);
-    }
-
-    return await response.json();
-  }
 }

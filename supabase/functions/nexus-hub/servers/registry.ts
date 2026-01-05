@@ -7,6 +7,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { decryptConfig } from "../lib/vault.ts";
 import { ensureMapsConfig } from "./maps.ts";
 import { ensurePlaywrightConfig } from "./playwright.ts";
+import { ensureBraveConfig } from "./brave.ts";
 import type { ServerConfig, SystemServerRecord, UserServerRecord } from "../lib/types.ts";
 
 export interface ServerRecord {
@@ -57,6 +58,15 @@ export async function getAllServers(
           config = ensurePlaywrightConfig(config);
         } catch (error) {
           console.error("Error configuring Playwright server:", error);
+          continue; // Skip this server if config fails
+        }
+      }
+      
+      if (server.id === 'brave') {
+        try {
+          config = ensureBraveConfig(config);
+        } catch (error) {
+          console.error("Error configuring Brave server:", error);
           continue; // Skip this server if config fails
         }
       }

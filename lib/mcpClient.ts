@@ -133,6 +133,8 @@ export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerCon
     throw new Error("Missing GOOGLE_MAPS_GROUNDING_API_KEY environment variable")
   }
 
+  console.log(`[MCP Client] Using Google Maps API key (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 10)}...)`)
+
   return {
     ...config,
     transport: "http",
@@ -145,7 +147,8 @@ export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerCon
 }
 
 export function validateManagedServerConfig(config: McpServerConfig) {
-  if (config.id === "google-maps-grounding") {
+  // Check for both "maps" and "google-maps-grounding" server IDs
+  if (config.id === "maps" || config.id === "google-maps-grounding") {
     if (config.transport !== "http") {
       throw new Error("Google Maps Grounding Lite must use HTTP/SSE transport")
     }
@@ -156,6 +159,7 @@ export function validateManagedServerConfig(config: McpServerConfig) {
       throw new Error("Google Maps Grounding Lite requires an API key header")
     }
   }
+  
 }
 
 export class McpClient {
@@ -251,9 +255,9 @@ async function callStdioTransport(config: McpServerConfig, payload: JsonRpcEnvel
     proc.stderr.on("data", (chunk) => {
       const chunkStr = chunk.toString()
       stderr += chunkStr
-      // Log stderr in real-time for debugging (especially useful for Playwright)
+      // Log stderr in real-time for debugging (especially useful for Playwright and Brave)
       if (chunkStr.trim()) {
-        console.error(`[MCP Stdio] stderr from ${config.command}:`, chunkStr.trim())
+        console.error(`[MCP Stdio] stderr from ${config.id || config.command}:`, chunkStr.trim())
       }
     })
 
@@ -264,8 +268,12 @@ async function callStdioTransport(config: McpServerConfig, payload: JsonRpcEnvel
 
     proc.on("close", (code) => {
       if (code !== 0) {
-        console.error(`[MCP Stdio] Process exited with code ${code}. Command: ${config.command} ${(config.args || []).join(" ")}`)
+        console.error(`[MCP Stdio] Process exited with code ${code}. Server: ${config.id || 'unknown'}, Command: ${config.command} ${(config.args || []).slice(0, 2).join(" ")}...`)
+        console.error(`[MCP Stdio] Full command: ${config.command} ${(config.args || []).map((arg, idx) => 
+          (arg === '--brave-api-key' && config.args?.[idx + 1]) ? '--brave-api-key <REDACTED>' : arg
+        ).join(" ")}`)
         console.error(`[MCP Stdio] stderr output:`, stderr.trim() || "<none>")
+        console.error(`[MCP Stdio] stdout output (first 500 chars):`, stdout.substring(0, 500) || "<none>")
         reject(
           new Error(
             `Local MCP process exited with code ${code}. stderr: ${stderr.trim() || "<none>"}`

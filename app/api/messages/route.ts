@@ -8,7 +8,12 @@ import { existsSync } from "fs"
 export async function GET() {
   return NextResponse.json({ 
     message: "Messages API is working",
-    hasOpenAIKey: !!process.env.OPENAI_API_KEY 
+    hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+    hasBraveKey: !!process.env.BRAVE_API_KEY,
+    braveKeyLength: process.env.BRAVE_API_KEY?.length || 0,
+    braveKeyPreview: process.env.BRAVE_API_KEY ? `${process.env.BRAVE_API_KEY.substring(0, 10)}...` : 'not set',
+    allBraveEnvVars: Object.keys(process.env).filter(key => key.includes('BRAVE')),
+    cwd: process.cwd(),
   })
 }
 
@@ -39,13 +44,35 @@ export async function POST(request: Request) {
     // Trim and validate API key format
     apiKeyToUse = apiKeyToUse.trim()
     
+    // Debug logging (only first/last few chars for security)
+    if (apiKeyToUse) {
+      const keyPreview = apiKeyToUse.length > 20 
+        ? `${apiKeyToUse.substring(0, 10)}...${apiKeyToUse.substring(apiKeyToUse.length - 4)}`
+        : `${apiKeyToUse.substring(0, Math.min(10, apiKeyToUse.length))}...`
+      console.log(`[API] Using ${provider} API key (length: ${apiKeyToUse.length}, preview: ${keyPreview})`)
+    }
+    
     // Basic format validation for OpenAI keys
-    if (provider === "openai" && !apiKeyToUse.match(/^sk-[a-zA-Z0-9\-_]{20,}$/)) {
-      console.error(`[API] Invalid OpenAI API key format. Key length: ${apiKeyToUse.length}, starts with: ${apiKeyToUse.substring(0, 5)}`)
-      return NextResponse.json(
-        { error: "Invalid OpenAI API key format. Keys should start with 'sk-' and be at least 20 characters long. Please check your key and try again." },
-        { status: 400 }
-      )
+    // OpenAI keys typically start with 'sk-' and are at least 20 characters
+    // We'll do a lenient check and let OpenAI's API handle actual validation
+    if (provider === "openai") {
+      // Check if key starts with 'sk-' (covers sk-, sk-proj-, sk-org-, etc.)
+      if (!apiKeyToUse.startsWith('sk-')) {
+        console.error(`[API] Invalid OpenAI API key format. Key starts with: ${apiKeyToUse.substring(0, Math.min(10, apiKeyToUse.length))}`)
+        return NextResponse.json(
+          { error: "Invalid OpenAI API key format. Keys should start with 'sk-'. Please check your key and try again." },
+          { status: 400 }
+        )
+      }
+      
+      // Basic length check (very lenient - OpenAI will validate the actual format)
+      if (apiKeyToUse.length < 20) {
+        console.error(`[API] OpenAI API key seems too short. Key length: ${apiKeyToUse.length}`)
+        return NextResponse.json(
+          { error: "OpenAI API key appears to be too short. Please check your key and try again." },
+          { status: 400 }
+        )
+      }
     }
 
     // Only handle OpenAI for now (other providers can be added later with their respective SDKs)
@@ -78,34 +105,74 @@ export async function POST(request: Request) {
 
 CRITICAL: You MUST call the appropriate function/tool when users request actions. Do NOT write code examples or Python scripts. Instead, use the function calling mechanism to execute the tools directly.
 
-Function names follow the format: server_toolname (e.g., playwright_browser_navigate, playwright_browser_screenshot).
+Function names follow the format: server_toolname (e.g., playwright_browser_navigate, playwright_browser_take_screenshot, maps_search_places).
+
+🚨 SCREENSHOT REQUESTS - READ THIS FIRST:
+If the user requests a screenshot, image, or visual capture of a webpage:
+1. Call playwright_browser_navigate with the URL
+2. IMMEDIATELY call playwright_browser_take_screenshot (no arguments)
+DO NOT call playwright_browser_select_option, playwright_browser_snapshot, or any other tool. ONLY playwright_browser_take_screenshot produces images.
+
+CRITICAL FOR GOOGLE MAPS:
+- When users ask about locations, places, businesses, or directions, you MUST use the Maps tools (tools starting with "maps_")
+- DO NOT just return Google Maps links - you MUST call the Maps API tools to get structured data
+- Common Maps tools include: maps_search_places, maps_get_place_details, maps_get_directions, etc.
+- After calling Maps tools, present the structured data (names, addresses, ratings, etc.) to the user in a helpful format
+- Examples:
+  * User says "find me coffee shops in Des Moines" → Call maps_search_places with query="coffee shops in Des Moines" or location="Des Moines" and type="cafe"
+  * User says "where is the nearest gas station" → Call maps_search_places with appropriate location and type parameters
+  * User says "directions from A to B" → Call maps_get_directions with origin and destination
+- Always use the actual Maps API tools to get real data, not just links
 
 CRITICAL FOR PLAYWRIGHT SCREENSHOTS:
-- When users request screenshots, you MUST use the tool named EXACTLY: playwright_browser_screenshot
+- When users request screenshots, you MUST use the tool named EXACTLY: playwright_browser_take_screenshot
 - DO NOT use playwright_browser_snapshot (this returns text, not images)
-- DO NOT use any tool with "snapshot" in the name - only tools with "screenshot" in the name produce images
+- DO NOT use playwright_browser_select_option or any other tool - ONLY playwright_browser_take_screenshot produces images
+- DO NOT use any tool with "snapshot" in the name - only tools with "take_screenshot" in the name produce images
 - The browser uses a PERSISTENT process that maintains context across tool calls within a session.
-- You can chain navigation and screenshot operations: first call playwright_browser_navigate with url parameter, then call playwright_browser_screenshot.
+- You can chain navigation and screenshot operations: first call playwright_browser_navigate with url parameter, then call playwright_browser_take_screenshot.
 - The system automatically waits for networkidle on navigation to ensure pages are fully loaded before screenshots.
 - CRITICAL: Do NOT open multiple tabs. Use the existing browser page/tab. If a page is already open, reuse it by navigating to the new URL rather than opening a new tab.
 - If you encounter "browser is currently in use" or "browser is already in use" errors, the system automatically resets the browser process. Simply inform the user that the browser was reset and they can try their request again. The next tool call will use a fresh browser session.
 
-SCREENSHOT WORKFLOW (MANDATORY):
+SCREENSHOT WORKFLOW (MANDATORY - FOLLOW EXACTLY):
 - User requests screenshot → 
-  1. Call playwright_browser_navigate with url parameter
-  2. Call playwright_browser_screenshot (this is the ONLY tool that produces images - do NOT use playwright_browser_snapshot)
+  1. Call playwright_browser_navigate with url parameter (e.g., url="https://example.com")
+  2. IMMEDIATELY call playwright_browser_take_screenshot with NO arguments (this is the ONLY tool that produces images - do NOT use playwright_browser_snapshot, do NOT use playwright_browser_select_option, do NOT use any other tool)
 
 Examples:
 - User says "/playwright go to example.com and take a screenshot" → 
   1. Call playwright_browser_navigate with url="https://example.com"
-  2. Call playwright_browser_screenshot (NOT playwright_browser_snapshot)
+  2. Call playwright_browser_take_screenshot (NO arguments needed - NOT playwright_browser_snapshot, NOT playwright_browser_select_option)
 - User says "show me a screenshot of example.com" → 
   1. Call playwright_browser_navigate with url="https://example.com"
-  2. Call playwright_browser_screenshot (NOT playwright_browser_snapshot)
+  2. Call playwright_browser_take_screenshot (NO arguments needed - NOT playwright_browser_snapshot, NOT playwright_browser_select_option)
+- User says "take a screenshot of example.com" → 
+  1. Call playwright_browser_navigate with url="https://example.com"
+  2. Call playwright_browser_take_screenshot (NO arguments needed - this is MANDATORY for screenshots)
 - User says "/github list repos" → Call github_list_repositories
-- User says "/brave search for X" → Call brave_search
+- User says "/brave X" (e.g., "/brave ai developments in late 2025") → IMMEDIATELY call brave_web_search with query="X" (e.g., query="ai developments in late 2025")
+- User says "/brave search for X" or "search for X using Brave" → Use Brave Search MCP tools (brave_web_search, brave_image_search, brave_news_search, or brave_summarizer)
+- User says "find coffee shops in Des Moines" → Call maps_search_places with appropriate parameters to get actual place data
 
-ALWAYS use function calling when tools are available. Never write code examples when you can use the tools directly.`
+🚨 CRITICAL FOR BRAVE SEARCH - READ THIS FIRST (HIGHEST PRIORITY):
+- When a user types "/brave" followed by ANY text, they want you to SEARCH for that information using Brave Search tools
+- DO NOT use Playwright, DO NOT navigate to websites, DO NOT take screenshots when users type "/brave"
+- DO NOT provide general knowledge or information from your training data when users type "/brave"
+- You MUST call the Brave Search tools to get real, current search results
+- Brave Search is an MCP server with multiple tools: brave_web_search, brave_image_search, brave_news_search, and brave_summarizer
+- When users type "/brave" followed by a query, use brave_web_search with the query parameter containing the full search query
+- When users request image searches, use brave_image_search
+- When users request news searches, use brave_news_search
+- Examples:
+  * User says "/brave ai developments in late 2025" → IMMEDIATELY call brave_web_search with query="ai developments in late 2025" (DO NOT use Playwright)
+  * User says "/brave TypeScript" → IMMEDIATELY call brave_web_search with query="TypeScript" (DO NOT use Playwright)
+  * User says "search for AI news" → Call brave_web_search with query="AI news"
+- DO NOT respond with general knowledge when users explicitly use "/brave" - you MUST call the search tool
+- DO NOT use playwright_browser_navigate or playwright_browser_take_screenshot when users type "/brave" - use brave_web_search instead
+- Brave Search returns web search results with titles, URLs, and snippets - present these to the user in a helpful format
+
+ALWAYS use function calling when tools are available. Never write code examples when you can use the tools directly. Always call the actual API tools to get real data, not just return links or generic responses.`
     })
 
     // Handle text content
@@ -152,6 +219,54 @@ ALWAYS use function calling when tools are available. Never write code examples 
       console.log(`[API Messages] Loaded ${tools.length} tools for function calling`)
       if (tools.length > 0) {
         console.log(`[API Messages] First 5 tool names:`, tools.slice(0, 5).map(t => t.function.name))
+        
+        // Check if screenshot tool is available and log it
+        const screenshotTool = tools.find(t => t.function.name === 'playwright_browser_take_screenshot')
+        if (screenshotTool) {
+          console.log(`[API Messages] ✅ Screenshot tool found: playwright_browser_take_screenshot`)
+          console.log(`[API Messages] Screenshot tool description (first 200 chars):`, screenshotTool.function.description?.substring(0, 200))
+        } else {
+          console.warn(`[API Messages] ⚠️ Screenshot tool NOT found in available tools!`)
+          // Log all tool names to help debug
+          const allToolNames = tools.map(t => t.function.name).sort()
+          console.warn(`[API Messages] Available tool names: ${allToolNames.join(', ')}`)
+          // Check if there's a similar tool name
+          const similarTools = tools.filter(t => t.function.name.includes('screenshot') || t.function.name.includes('snapshot'))
+          if (similarTools.length > 0) {
+            console.warn(`[API Messages] Found similar tools: ${similarTools.map(t => t.function.name).join(', ')}`)
+          }
+        }
+        
+        // Check if user is requesting a screenshot
+        const screenshotKeywords = ['screenshot', 'capture', 'image', 'picture', 'visual', 'show me']
+        const isScreenshotRequest = screenshotKeywords.some(keyword => 
+          content?.toLowerCase().includes(keyword)
+        )
+        if (isScreenshotRequest) {
+          console.log(`[API Messages] 🎯 User requested screenshot - ensuring screenshot tool is available`)
+          if (!screenshotTool) {
+            console.error(`[API Messages] ❌ CRITICAL: Screenshot tool not available but user requested screenshot!`)
+          }
+        }
+        
+        // Check if user is requesting Brave Search
+        const isBraveRequest = content?.toLowerCase().startsWith('/brave') || content?.toLowerCase().includes('/brave ')
+        if (isBraveRequest) {
+          console.log(`[API Messages] 🔍 User requested Brave Search - checking if Brave tools are available`)
+          const braveTools = tools.filter(t => t.function.name.startsWith('brave_'))
+          if (braveTools.length === 0) {
+            console.error(`[API Messages] ❌ CRITICAL: No Brave Search tools available! User typed "/brave" but tools are not loaded.`)
+            console.error(`[API Messages] Available tool prefixes: ${[...new Set(tools.map(t => t.function.name.split('_')[0]))].join(', ')}`)
+          } else {
+            console.log(`[API Messages] ✅ Found ${braveTools.length} Brave Search tools: ${braveTools.map(t => t.function.name).join(', ')}`)
+            const webSearchTool = braveTools.find(t => t.function.name === 'brave_web_search' || t.function.name.includes('web_search'))
+            if (webSearchTool) {
+              console.log(`[API Messages] ✅ brave_web_search tool is available and should be used`)
+            } else {
+              console.warn(`[API Messages] ⚠️ brave_web_search tool NOT found! Available Brave tools: ${braveTools.map(t => t.function.name).join(', ')}`)
+            }
+          }
+        }
       } else {
         console.warn(`[API Messages] No tools loaded! This means function calling won't work.`)
       }
@@ -179,7 +294,27 @@ ALWAYS use function calling when tools are available. Never write code examples 
     let completion = await openai.chat.completions.create(requestOptions)
 
     let assistantMessage = completion.choices[0]?.message?.content || ""
-    const toolCalls = completion.choices[0]?.message?.tool_calls || []
+    let toolCalls = completion.choices[0]?.message?.tool_calls || []
+
+    // Detect screenshot requests and ensure screenshot tool is called
+    const screenshotKeywords = ['screenshot', 'capture', 'image', 'picture', 'visual', 'show me']
+    const isScreenshotRequest = screenshotKeywords.some(keyword => 
+      content?.toLowerCase().includes(keyword)
+    )
+    
+    if (isScreenshotRequest && toolCalls.length > 0) {
+      // Check if screenshot tool was called
+      const screenshotToolCalled = toolCalls.some(tc => tc.function.name === 'playwright_browser_take_screenshot')
+      const navigateToolCalled = toolCalls.some(tc => tc.function.name === 'playwright_browser_navigate')
+      
+      // If navigate was called but screenshot wasn't, we'll add it after navigation completes
+      // For now, just log a warning
+      if (navigateToolCalled && !screenshotToolCalled) {
+        console.warn(`[API Messages] ⚠️ Screenshot requested but screenshot tool not called in initial tool calls. Will check after navigation.`)
+      } else if (!navigateToolCalled && !screenshotToolCalled) {
+        console.warn(`[API Messages] ⚠️ Screenshot requested but neither navigate nor screenshot tools were called.`)
+      }
+    }
 
     // Store all tool results for image extraction
     const allToolResults: Array<{ rawResult: any; name: string }> = []
@@ -205,13 +340,21 @@ ALWAYS use function calling when tools are available. Never write code examples 
         toolCalls.map(async (toolCall) => {
           try {
             const args = JSON.parse(toolCall.function.arguments)
+            console.log(`[API] Calling tool: ${toolCall.function.name} with args:`, JSON.stringify(args).substring(0, 200))
             const result = await invokeToolByName(toolCall.function.name, args)
+            console.log(`[API] Tool ${toolCall.function.name} returned:`, JSON.stringify(result).substring(0, 500))
             allToolResults.push({ rawResult: result, name: toolCall.function.name })
+            
+            // If result is empty or null, add a note to help LLM understand
+            const resultContent = result === null || result === undefined 
+              ? JSON.stringify({ error: "Tool returned no data. Check API key configuration." })
+              : JSON.stringify(result)
+            
             return {
               tool_call_id: toolCall.id,
               role: "tool" as const,
               name: toolCall.function.name,
-              content: JSON.stringify(result),
+              content: resultContent,
             }
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Unknown error"
@@ -245,6 +388,70 @@ ALWAYS use function calling when tools are available. Never write code examples 
 
       assistantMessage = completion.choices[0]?.message?.content || "Tool execution completed."
 
+      // Auto-inject screenshot tool call if screenshot was requested but not called
+      if (isScreenshotRequest && allToolResults.length > 0) {
+        console.log(`[API Messages] 🔍 Checking for screenshot auto-injection. Tool results: ${allToolResults.map(tr => tr.name).join(', ')}`)
+        const screenshotToolCalled = allToolResults.some(tr => tr.name === 'playwright_browser_take_screenshot')
+        const navigateResult = allToolResults.find(tr => tr.name === 'playwright_browser_navigate')
+        
+        // Check if navigation succeeded - look for success indicators, not just absence of errors
+        // Navigation succeeds if we see "Page URL", "Page state", or "Page Title" in the result
+        // Console errors are normal and don't indicate failure
+        let navigateSucceeded = false
+        if (navigateResult) {
+          const resultStr = JSON.stringify(navigateResult.rawResult).toLowerCase()
+          // Success indicators
+          const hasPageUrl = resultStr.includes('page url') || resultStr.includes('url:')
+          const hasPageState = resultStr.includes('page state') || resultStr.includes('page snapshot')
+          const hasPageTitle = resultStr.includes('page title')
+          // Failure indicators (actual failures, not console errors)
+          const hasActualError = resultStr.includes('"error"') || resultStr.includes('failed to navigate') || resultStr.includes('navigation failed')
+          
+          navigateSucceeded = (hasPageUrl || hasPageState || hasPageTitle) && !hasActualError
+          console.log(`[API Messages] 🔍 Navigation check: hasPageUrl=${hasPageUrl}, hasPageState=${hasPageState}, hasPageTitle=${hasPageTitle}, hasActualError=${hasActualError}, navigateSucceeded=${navigateSucceeded}`)
+        }
+        
+        console.log(`[API Messages] 🔍 Screenshot tool called: ${screenshotToolCalled}, Navigation succeeded: ${!!navigateSucceeded}`)
+        
+        if (navigateSucceeded && !screenshotToolCalled) {
+          console.log(`[API Messages] 🔧 Auto-injecting screenshot tool call after successful navigation`)
+          try {
+            // Wait a moment for page to fully load after navigation
+            await new Promise(resolve => setTimeout(resolve, 1000))
+            
+            const screenshotResult = await invokeToolByName('playwright_browser_take_screenshot', {})
+            console.log(`[API Messages] 📸 Screenshot result type: ${typeof screenshotResult}, keys: ${screenshotResult && typeof screenshotResult === 'object' ? Object.keys(screenshotResult).join(', ') : 'N/A'}`)
+            console.log(`[API Messages] 📸 Screenshot result preview: ${JSON.stringify(screenshotResult).substring(0, 500)}`)
+            
+            allToolResults.push({ rawResult: screenshotResult, name: 'playwright_browser_take_screenshot' })
+            console.log(`[API Messages] ✅ Auto-injected screenshot tool call completed. Total tool results: ${allToolResults.length}`)
+            // Note: We don't add this to messages - it will be extracted from allToolResults
+          } catch (error) {
+            console.error(`[API Messages] ❌ Auto-injected screenshot tool call failed:`, error)
+            if (error instanceof Error && error.stack) {
+              console.error(`[API Messages] Error stack:`, error.stack.substring(0, 500))
+            }
+            // Still add error result so we know it failed
+            const errorMessage = error instanceof Error ? error.message : "Unknown error"
+            allToolResults.push({ 
+              rawResult: { error: errorMessage }, 
+              name: 'playwright_browser_take_screenshot' 
+            })
+          }
+        } else if (!navigateSucceeded && !screenshotToolCalled) {
+          console.warn(`[API Messages] ⚠️ Screenshot requested but navigation failed or not called. Cannot auto-inject screenshot.`)
+          if (navigateResult) {
+            console.warn(`[API Messages] Navigation result: ${JSON.stringify(navigateResult.rawResult).substring(0, 300)}`)
+          } else {
+            console.warn(`[API Messages] No navigation result found in tool results`)
+          }
+        } else if (screenshotToolCalled) {
+          console.log(`[API Messages] ✅ Screenshot tool was already called, no need to auto-inject`)
+        }
+      } else if (isScreenshotRequest) {
+        console.warn(`[API Messages] ⚠️ Screenshot requested but no tool results yet (allToolResults.length: ${allToolResults.length})`)
+      }
+
       // Handle additional tool calls if needed (up to 3 iterations to avoid infinite loops)
       let iteration = 0
       while (
@@ -272,7 +479,13 @@ ALWAYS use function calling when tools are available. Never write code examples 
           additionalToolCalls.map(async (toolCall) => {
             try {
               const args = JSON.parse(toolCall.function.arguments)
+              console.log(`[API] Additional tool call: ${toolCall.function.name} with args:`, JSON.stringify(args).substring(0, 200))
               const result = await invokeToolByName(toolCall.function.name, args)
+              console.log(`[API] Additional tool ${toolCall.function.name} returned:`, JSON.stringify(result).substring(0, 500))
+              
+              // Add to allToolResults for screenshot extraction
+              allToolResults.push({ rawResult: result, name: toolCall.function.name })
+              
               return {
                 tool_call_id: toolCall.id,
                 role: "tool" as const,
@@ -308,7 +521,7 @@ ALWAYS use function calling when tools are available. Never write code examples 
           max_tokens: 2000,
         })
 
-        assistantMessage = completion.choices[0]?.message?.content || "Tool execution completed."
+        assistantMessage = completion.choices[0]?.message?.content || "Tool execution completed. Please check the tool results above for any errors or empty responses."
       }
     }
 
@@ -329,8 +542,17 @@ ALWAYS use function calling when tools are available. Never write code examples 
             console.log(`[API] Checking tool result from ${toolResult.name}:`, resultStr)
             
             // Warn if screenshot tool wasn't called
-            if (toolResult.name.includes("playwright") && !toolResult.name.includes("screenshot")) {
-              console.warn(`[API] ⚠️ Playwright tool '${toolResult.name}' was called, but it's not the screenshot tool. Screenshots require 'playwright_browser_screenshot'.`)
+            if (toolResult.name.includes("playwright") && !toolResult.name.includes("take_screenshot")) {
+              console.warn(`[API] ⚠️ Playwright tool '${toolResult.name}' was called, but it's not the screenshot tool. Screenshots require 'playwright_browser_take_screenshot'.`)
+            }
+            
+            // Special logging for screenshot tool results
+            if (toolResult.name === 'playwright_browser_take_screenshot') {
+              console.log(`[API] 🔍 Screenshot tool result structure:`, JSON.stringify(resultContent, null, 2).substring(0, 1000))
+              console.log(`[API] 🔍 Screenshot tool result type:`, typeof resultContent)
+              if (resultContent && typeof resultContent === 'object') {
+                console.log(`[API] 🔍 Screenshot tool result keys:`, Object.keys(resultContent))
+              }
             }
             
             // Playwright MCP screenshot format: { content: [{ type: "image", data: "base64...", mimeType: "image/png" }] }
@@ -429,6 +651,25 @@ ALWAYS use function calling when tools are available. Never write code examples 
         }
         if (!extractedImageData) {
           console.log(`[API] ❌ No screenshot data found in ${allToolResults.length} tool results`)
+          
+          // Check if screenshot tool was called at all
+          const screenshotToolCalled = allToolResults.some(tr => tr.name === 'playwright_browser_take_screenshot')
+          if (!screenshotToolCalled) {
+            const playwrightToolsCalled = allToolResults.filter(tr => tr.name.includes('playwright')).map(tr => tr.name)
+            console.warn(`[API] ⚠️ CRITICAL: Screenshot tool 'playwright_browser_take_screenshot' was NOT called!`)
+            console.warn(`[API] ⚠️ Playwright tools that WERE called: ${playwrightToolsCalled.join(', ') || 'none'}`)
+            console.warn(`[API] ⚠️ This means the AI did not follow the screenshot workflow. User requested screenshot but tool was not invoked.`)
+          } else {
+            // Screenshot tool was called but extraction failed - log the result structure
+            const screenshotResult = allToolResults.find(tr => tr.name === 'playwright_browser_take_screenshot')
+            if (screenshotResult) {
+              console.warn(`[API] ⚠️ Screenshot tool WAS called but extraction failed!`)
+              console.warn(`[API] ⚠️ Screenshot result type: ${typeof screenshotResult.rawResult}`)
+              console.warn(`[API] ⚠️ Screenshot result structure: ${JSON.stringify(screenshotResult.rawResult).substring(0, 1000)}`)
+            }
+          }
+        } else {
+          console.log(`[API] ✅ Screenshot data extracted successfully! Size: ${extractedImageData.length} characters`)
         }
       } catch (error) {
         console.error("[API] Error extracting image from tool results:", error)

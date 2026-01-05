@@ -63,6 +63,18 @@ function RegistryPageContent() {
     }
   }, [searchParams, router])
 
+  React.useEffect(() => {
+    const serverId = searchParams.get("server")
+    if (serverId && servers.system.length > 0) {
+      const server = servers.system.find((s) => s.id === serverId)
+      if (server) {
+        setEditingServer(server)
+        setAddServerOpen(true)
+        router.replace("/monitoring")
+      }
+    }
+  }, [searchParams, servers.system, router])
+
   const handleEditServer = (server: McpServer) => {
     setEditingServer(server)
     setAddServerOpen(true)
@@ -330,7 +342,10 @@ function AddServerDialog({
   React.useEffect(() => {
     if (editingServer) {
       setName(editingServer.name)
-      setUrl("") // URL not stored in current interface - would need to be added
+      // Prepopulate URL for system servers
+      const serverId = editingServer.id.toLowerCase()
+      const defaultUrl = KNOWN_SERVERS[serverId]?.url || KNOWN_SERVERS[editingServer.name.toLowerCase()]?.url || ""
+      setUrl(defaultUrl)
       setApiKey(editingServer.apiKey || "")
       setNaturalLanguageInChat(editingServer.naturalLanguageInChat || false)
       if (editingServer.logoUrl) {
@@ -480,7 +495,14 @@ function AddServerDialog({
               onChange={(e) => setName(e.target.value)}
               placeholder="My Custom Server"
               required
+              disabled={editingServer?.type === "system"}
+              className={editingServer?.type === "system" ? "bg-muted cursor-not-allowed" : ""}
             />
+            {editingServer?.type === "system" && (
+              <p className="text-xs text-muted-foreground">
+                System server name cannot be changed
+              </p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="url">Server URL</Label>
@@ -495,7 +517,8 @@ function AddServerDialog({
                 }}
                 placeholder="https://api.example.com/mcp"
                 required
-                className="flex-1"
+                disabled={editingServer?.type === "system"}
+                className={`flex-1 ${editingServer?.type === "system" ? "bg-muted cursor-not-allowed" : ""}`}
               />
               <Button
                 type="button"

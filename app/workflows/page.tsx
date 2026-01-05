@@ -75,6 +75,14 @@ interface Server {
   description?: string
 }
 
+interface Tool {
+  name: string
+  description?: string
+  serverId: string
+  serverName: string
+  serverLogoUrl?: string
+}
+
 // Client-side only timestamp component to avoid hydration errors
 function MessageTimestamp({ timestamp }: { timestamp: Date }) {
   const [formattedTime, setFormattedTime] = React.useState<string>("")
@@ -85,6 +93,19 @@ function MessageTimestamp({ timestamp }: { timestamp: Date }) {
   }, [timestamp])
   
   return <p className="mt-1.5 text-xs opacity-70">{formattedTime || ""}</p>
+}
+
+// Helper function to generate UUID - works in both browser and Node.js
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  // Fallback UUID v4 generator
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
 }
 
 export default function WorkflowsPage() {
@@ -99,9 +120,12 @@ export default function WorkflowsPage() {
   const [isSpeechSupported, setIsSpeechSupported] = React.useState(false)
   const [chatProvider, setChatProvider] = React.useState<"openai" | "anthropic" | "google">("openai")
   const [servers, setServers] = React.useState<Server[]>([])
+  const [allTools, setAllTools] = React.useState<Tool[]>([])
   const [showAutocomplete, setShowAutocomplete] = React.useState(false)
+  const [autocompleteType, setAutocompleteType] = React.useState<"servers" | "tools">("servers")
   const [autocompleteQuery, setAutocompleteQuery] = React.useState("")
   const [selectedAutocompleteIndex, setSelectedAutocompleteIndex] = React.useState(0)
+  const [isLoadingTools, setIsLoadingTools] = React.useState(false)
   const [commandHistory, setCommandHistory] = React.useState<string[]>([])
   const [historyIndex, setHistoryIndex] = React.useState(-1)
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
@@ -146,6 +170,70 @@ export default function WorkflowsPage() {
     }
     fetchServers()
   }, [])
+
+  // Fetch all tools from all servers
+  const fetchAllTools = React.useCallback(async () => {
+    if (allTools.length > 0 || servers.length === 0) return // Already loaded or no servers
+    
+    setIsLoadingTools(true)
+    try {
+      const tools: Tool[] = []
+      
+      // Fetch tools from each server
+      // Note: This is a simplified implementation - in production, you'd want
+      // to use proper server configs or an aggregated tools endpoint
+      for (const server of servers) {
+        try {
+          // Build a basic config for the server
+          // In production, this should use actual server configs from the database
+          const config: any = {
+            id: server.id,
+            name: server.name,
+            transport: server.id === "playwright" ? "stdio" : "http",
+            headers: {},
+          }
+          
+          if (server.id === "playwright") {
+            config.command = "npx"
+            config.args = ["@playwright/mcp@latest", "--headless"]
+          }
+          
+          const response = await fetch("/api/mcp", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "list_tools",
+              config,
+            }),
+          })
+          
+          if (response.ok) {
+            const data = await response.json()
+            if (data.tools && Array.isArray(data.tools)) {
+              for (const tool of data.tools) {
+                tools.push({
+                  name: tool.name,
+                  description: tool.description,
+                  serverId: server.id,
+                  serverName: server.name,
+                  serverLogoUrl: server.logoUrl,
+                })
+              }
+            }
+          }
+        } catch (error) {
+          // Silently fail for individual servers - we'll show tools that loaded successfully
+          console.error(`Error fetching tools from ${server.name}:`, error)
+        }
+      }
+      
+      setAllTools(tools)
+    } catch (error) {
+      console.error("Error fetching tools:", error)
+    } finally {
+      setIsLoadingTools(false)
+    }
+  }, [servers, allTools.length])
 
   // Close autocomplete when clicking outside
   React.useEffect(() => {
@@ -288,12 +376,13 @@ export default function WorkflowsPage() {
 
   // Parse API keys from natural language input
   const parseApiKeyFromText = (text: string): { provider: string; key: string } | null => {
-    // OpenAI keys can start with sk- or sk-proj- and contain alphanumeric, dashes, and underscores
+    // OpenAI keys can start with sk-, sk-proj-, or sk-org- and contain alphanumeric, dashes, and underscores
+    // Minimum 20 characters total
     const openaiPatterns = [
-      /(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key\s+(?:is\s+)?(?:[:=]?\s*)?(sk-[a-zA-Z0-9\-_]{20,})/i,
-      /set\s+(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key\s+(?:to\s+)?(?:[:=]?\s*)?(sk-[a-zA-Z0-9\-_]{20,})/i,
-      /(?:openai|open\s+ai)\s+(?:api\s+)?key\s*[:=]\s*(sk-[a-zA-Z0-9\-_]{20,})/i,
-      /(sk-[a-zA-Z0-9\-_]{20,})\s+(?:is\s+)?(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key/i,
+      /(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key\s+(?:is\s+)?(?:[:=]?\s*)?(sk-(?:proj-|org-)?[a-zA-Z0-9\-_]{20,})/i,
+      /set\s+(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key\s+(?:to\s+)?(?:[:=]?\s*)?(sk-(?:proj-|org-)?[a-zA-Z0-9\-_]{20,})/i,
+      /(?:openai|open\s+ai)\s+(?:api\s+)?key\s*[:=]\s*(sk-(?:proj-|org-)?[a-zA-Z0-9\-_]{20,})/i,
+      /(sk-(?:proj-|org-)?[a-zA-Z0-9\-_]{20,})\s+(?:is\s+)?(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key/i,
     ]
     
     const anthropicPatterns = [
@@ -350,14 +439,14 @@ export default function WorkflowsPage() {
       localStorage.setItem(storageKey, apiKeyMatch.key)
       
       const userMessage: Message = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         role: "user",
         content: userInput,
         timestamp: new Date(),
       }
       
       const confirmationMessage: Message = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         role: "assistant",
         content: `✅ ${apiKeyMatch.provider === "openai" ? "OpenAI" : apiKeyMatch.provider === "anthropic" ? "Anthropic (Claude)" : "Google Gemini"} API key saved successfully!`,
         timestamp: new Date(),
@@ -369,7 +458,7 @@ export default function WorkflowsPage() {
     }
 
     const userMessage: Message = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: "user",
       content: userInput,
       imageUrl: imagePreview || undefined,
@@ -420,11 +509,16 @@ export default function WorkflowsPage() {
       let userApiKey: string | null = null
       if (typeof window !== "undefined") {
         if (chatProvider === "openai") {
-          userApiKey = localStorage.getItem("openai_api_key")
+          const rawKey = localStorage.getItem("openai_api_key")
+          userApiKey = rawKey ? rawKey.trim() : null
+          // Debug: log key length and first few chars (for troubleshooting)
+          if (userApiKey) {
+            console.log(`[Workflows] Retrieved OpenAI key from localStorage (length: ${userApiKey.length}, starts with: ${userApiKey.substring(0, Math.min(10, userApiKey.length))}...)`)
+          }
         } else if (chatProvider === "anthropic") {
-          userApiKey = localStorage.getItem("anthropic_api_key")
+          userApiKey = localStorage.getItem("anthropic_api_key")?.trim() || null
         } else if (chatProvider === "google") {
-          userApiKey = localStorage.getItem("gemini_api_key")
+          userApiKey = localStorage.getItem("gemini_api_key")?.trim() || null
         }
       }
 
@@ -485,7 +579,7 @@ export default function WorkflowsPage() {
 
       // Add assistant message
       const assistantMessage: Message = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         role: "assistant",
         content: data.content || "No response generated",
         imageUrl: data.imageUrl || undefined, // Include image URL if present (e.g., from screenshots)
@@ -497,7 +591,7 @@ export default function WorkflowsPage() {
       // Extract the actual error message, handling both Error objects and strings
       const errorMsg = error?.message || error?.toString() || "Failed to process your request. Please try again."
       const errorMessage: Message = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         role: "assistant",
         content: `Error: ${errorMsg}`,
         timestamp: new Date(),
@@ -508,7 +602,7 @@ export default function WorkflowsPage() {
     }
   }
 
-  // Parse input for slash command autocomplete
+  // Parse input for slash command and hashtag tool autocomplete
   React.useEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
@@ -516,23 +610,40 @@ export default function WorkflowsPage() {
     const cursorPos = textarea.selectionStart
     const textBeforeCursor = input.substring(0, cursorPos)
     
-    // Check if we're at a slash command (word starts with /)
+    // Check for hashtag tool autocomplete (#)
+    const lastHashtagIndex = textBeforeCursor.lastIndexOf("#")
+    const textAfterHashtag = textBeforeCursor.substring(lastHashtagIndex + 1)
+    const hasSpaceAfterHashtag = textAfterHashtag.includes(" ") || textAfterHashtag.includes("\n")
+    
+    // Check for slash server autocomplete (/)
     const lastSlashIndex = textBeforeCursor.lastIndexOf("/")
     const textAfterSlash = textBeforeCursor.substring(lastSlashIndex + 1)
-    
-    // Check if there's a space after the slash (meaning command is complete)
     const hasSpaceAfterSlash = textAfterSlash.includes(" ") || textAfterSlash.includes("\n")
     
-    if (lastSlashIndex >= 0 && !hasSpaceAfterSlash && cursorPos === textBeforeCursor.length) {
-      // We're in a slash command - extract query
+    // Determine which autocomplete to show (hashtag takes precedence if both are present)
+    const hashtagIsActive = lastHashtagIndex >= 0 && !hasSpaceAfterHashtag && cursorPos === textBeforeCursor.length && (lastSlashIndex < 0 || lastHashtagIndex > lastSlashIndex)
+    const slashIsActive = lastSlashIndex >= 0 && !hasSpaceAfterSlash && cursorPos === textBeforeCursor.length && !hashtagIsActive
+    
+    if (hashtagIsActive) {
+      // We're in a hashtag tool command - extract query
+      const query = textAfterHashtag.toLowerCase()
+      setAutocompleteQuery(query)
+      setAutocompleteType("tools")
+      setShowAutocomplete(true)
+      setSelectedAutocompleteIndex(0)
+      // Fetch tools if not already loaded
+      fetchAllTools()
+    } else if (slashIsActive) {
+      // We're in a slash server command - extract query
       const query = textAfterSlash.toLowerCase()
       setAutocompleteQuery(query)
+      setAutocompleteType("servers")
       setShowAutocomplete(true)
       setSelectedAutocompleteIndex(0)
     } else {
       setShowAutocomplete(false)
     }
-  }, [input])
+  }, [input, fetchAllTools])
 
   // Filter servers based on query
   const filteredServers = React.useMemo(() => {
@@ -543,12 +654,26 @@ export default function WorkflowsPage() {
     )
   }, [servers, autocompleteQuery])
 
+  // Filter tools based on query
+  const filteredTools = React.useMemo(() => {
+    if (!autocompleteQuery) return allTools
+    return allTools.filter(tool => 
+      tool.name.toLowerCase().includes(autocompleteQuery) ||
+      tool.description?.toLowerCase().includes(autocompleteQuery) ||
+      tool.serverName.toLowerCase().includes(autocompleteQuery) ||
+      tool.serverId.toLowerCase().includes(autocompleteQuery)
+    )
+  }, [allTools, autocompleteQuery])
+
+  // Get current filtered list based on autocomplete type
+  const filteredList = autocompleteType === "tools" ? filteredTools : filteredServers
+
   // Reset selected index when filtered list changes
   React.useEffect(() => {
-    if (selectedAutocompleteIndex >= filteredServers.length) {
+    if (selectedAutocompleteIndex >= filteredList.length) {
       setSelectedAutocompleteIndex(0)
     }
-  }, [filteredServers.length, selectedAutocompleteIndex])
+  }, [filteredList.length, selectedAutocompleteIndex])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Handle command history navigation (only when autocomplete is not showing)
@@ -592,11 +717,11 @@ export default function WorkflowsPage() {
     }
 
     // Handle autocomplete navigation (when autocomplete is showing)
-    if (showAutocomplete && filteredServers.length > 0) {
+    if (showAutocomplete && filteredList.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault()
         setSelectedAutocompleteIndex(prev => 
-          prev < filteredServers.length - 1 ? prev + 1 : prev
+          prev < filteredList.length - 1 ? prev + 1 : prev
         )
         return
       }
@@ -607,9 +732,16 @@ export default function WorkflowsPage() {
       }
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault()
-        const selectedServer = filteredServers[selectedAutocompleteIndex]
-        if (selectedServer) {
-          insertServerCommand(selectedServer.id)
+        if (autocompleteType === "tools") {
+          const selectedTool = filteredTools[selectedAutocompleteIndex] as Tool | undefined
+          if (selectedTool) {
+            insertToolCommand(selectedTool.name, selectedTool.serverId)
+          }
+        } else {
+          const selectedServer = filteredServers[selectedAutocompleteIndex]
+          if (selectedServer) {
+            insertServerCommand(selectedServer.id)
+          }
         }
         return
       }
@@ -644,6 +776,30 @@ export default function WorkflowsPage() {
       // Set cursor position after the inserted command
       setTimeout(() => {
         const newCursorPos = lastSlashIndex + serverId.length + 2 // +1 for /, +1 for space
+        textarea.focus()
+        textarea.setSelectionRange(newCursorPos, newCursorPos)
+      }, 0)
+    }
+  }
+
+  const insertToolCommand = (toolName: string, serverId: string) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    const cursorPos = textarea.selectionStart
+    const textBeforeCursor = input.substring(0, cursorPos)
+    const lastHashtagIndex = textBeforeCursor.lastIndexOf("#")
+    
+    if (lastHashtagIndex >= 0) {
+      const beforeHashtag = input.substring(0, lastHashtagIndex)
+      const afterCursor = input.substring(cursorPos)
+      const newInput = `${beforeHashtag}#${toolName} ${afterCursor}`
+      setInput(newInput)
+      setShowAutocomplete(false)
+      
+      // Set cursor position after the inserted tool name
+      setTimeout(() => {
+        const newCursorPos = lastHashtagIndex + toolName.length + 2 // +1 for #, +1 for space
         textarea.focus()
         textarea.setSelectionRange(newCursorPos, newCursorPos)
       }, 0)
@@ -713,7 +869,35 @@ export default function WorkflowsPage() {
                     </div>
                   )}
                   {message.content && (
-                    <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+                    <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">
+                      {(() => {
+                        // If imageUrl is present, filter out markdown image syntax from content
+                        let processedContent = message.content
+                        if (message.imageUrl) {
+                          // Remove markdown image syntax like ![alt](url) or ![alt text](data:image/...)
+                          processedContent = processedContent.replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
+                          // Also remove standalone image markdown that might be in the text
+                          processedContent = processedContent.replace(/\[Screenshot[^\]]*\]\([^)]+\)/g, '')
+                        }
+                        
+                        return processedContent.split(/(https?:\/\/[^\s]+)/g).map((part, index) => {
+                          if (part.match(/^https?:\/\//)) {
+                            return (
+                              <a
+                                key={index}
+                                href={part}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary underline hover:text-primary/80 break-all"
+                              >
+                                {part}
+                              </a>
+                            )
+                          }
+                          return <span key={index}>{part}</span>
+                        })
+                      })()}
+                    </div>
                   )}
                   <MessageTimestamp timestamp={message.timestamp} />
                 </CardContent>
@@ -846,42 +1030,77 @@ export default function WorkflowsPage() {
                 }`}
                 disabled={isLoading}
               />
-              {showAutocomplete && filteredServers.length > 0 && (
+              {showAutocomplete && filteredList.length > 0 && (
                 <div
                   ref={autocompleteRef}
                   className="absolute bottom-full left-0 right-0 mb-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto"
                 >
-                  {filteredServers.map((server, index) => (
-                    <div
-                      key={server.id}
-                      onClick={() => insertServerCommand(server.id)}
-                      className={`px-3 py-2 cursor-pointer flex items-center gap-2 hover:bg-accent transition-colors ${
-                        index === selectedAutocompleteIndex ? "bg-accent" : ""
-                      }`}
-                      onMouseEnter={() => setSelectedAutocompleteIndex(index)}
-                    >
-                      {server.logoUrl && (
-                        <img
-                          src={server.logoUrl}
-                          alt={server.name}
-                          className="w-4 h-4 object-contain flex-shrink-0"
-                          onError={(e) => {
-                            // Hide image if it fails to load
-                            e.currentTarget.style.display = 'none'
-                          }}
-                        />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm">{server.name}</div>
-                        {server.description && (
-                          <div className="text-xs text-muted-foreground truncate">
-                            {server.description}
-                          </div>
+                  {autocompleteType === "servers" ? (
+                    filteredServers.map((server, index) => (
+                      <div
+                        key={server.id}
+                        onClick={() => insertServerCommand(server.id)}
+                        className={`px-3 py-2 cursor-pointer flex items-center gap-2 hover:bg-accent transition-colors ${
+                          index === selectedAutocompleteIndex ? "bg-accent" : ""
+                        }`}
+                        onMouseEnter={() => setSelectedAutocompleteIndex(index)}
+                      >
+                        {server.logoUrl && (
+                          <img
+                            src={server.logoUrl}
+                            alt={server.name}
+                            className="w-4 h-4 object-contain flex-shrink-0"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
                         )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm">{server.name}</div>
+                          {server.description && (
+                            <div className="text-xs text-muted-foreground truncate">
+                              {server.description}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground flex-shrink-0">/{server.id}</div>
                       </div>
-                      <div className="text-xs text-muted-foreground flex-shrink-0">/{server.id}</div>
+                    ))
+                  ) : (
+                    filteredTools.map((tool, index) => (
+                      <div
+                        key={`${tool.serverId}-${tool.name}`}
+                        onClick={() => insertToolCommand(tool.name, tool.serverId)}
+                        className={`px-3 py-2 cursor-pointer flex items-center gap-2 hover:bg-accent transition-colors ${
+                          index === selectedAutocompleteIndex ? "bg-accent" : ""
+                        }`}
+                        onMouseEnter={() => setSelectedAutocompleteIndex(index)}
+                      >
+                        {tool.serverLogoUrl && (
+                          <img
+                            src={tool.serverLogoUrl}
+                            alt={tool.serverName}
+                            className="w-4 h-4 object-contain flex-shrink-0"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm">{tool.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {tool.description || `${tool.serverName} tool`}
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground flex-shrink-0">#{tool.name}</div>
+                      </div>
+                    ))
+                  )}
+                  {isLoadingTools && autocompleteType === "tools" && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                      Loading tools...
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
               <input
