@@ -28,14 +28,10 @@ import {
   XCircle,
   Loader2,
   Activity,
-  TrendingUp,
-  AlertCircle,
   ExternalLink,
 } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
-import { WorkerStatusCard } from "@/components/worker-status-card"
 import { MetricsChart } from "@/components/metrics-chart"
-import type { WorkerStatus } from "@/lib/pulsar-client"
 
 interface McpServer {
   id: string
@@ -88,12 +84,44 @@ function RegistryPageContent() {
   }
 
   const handleDeleteServer = async (serverId: string, type: "system" | "user") => {
-    // TODO: Implement API call to delete server
-    console.log("Deleting server:", serverId, type)
+    if (type === "user") {
+      if (user) {
+        // Delete from Supabase via API
+        try {
+          const response = await fetch(`/api/servers/${serverId}`, {
+            method: "DELETE",
+          })
+          
+          if (!response.ok) {
+            console.error("Failed to delete server from Supabase")
+          }
+        } catch (error) {
+          console.error("Error deleting server:", error)
+        }
+      } else {
+        // Remove from localStorage
+        const storedUserServers = localStorage.getItem("user_servers")
+        if (storedUserServers) {
+          const userServers = JSON.parse(storedUserServers)
+          const updatedServers = userServers.filter((s: McpServer) => s.id !== serverId)
+          localStorage.setItem("user_servers", JSON.stringify(updatedServers))
+        }
+      }
+      
+      // Dispatch custom event to notify other components
+      window.dispatchEvent(new Event("userServersUpdated"))
+      
+      // Refresh server list
+      fetchServers()
+    }
+    
+    // Update UI state
     setServers((prev) => ({
       ...prev,
       [type]: prev[type].filter((s) => s.id !== serverId),
     }))
+    
+    console.log("Deleted server:", serverId, type)
   }
 
   const fetchServers = React.useCallback(async () => {
@@ -101,17 +129,31 @@ function RegistryPageContent() {
     try {
       const res = await fetch("/api/servers")
       const data = await res.json()
-      setServers(data)
+      
+      // If user is authenticated, use servers from API (Supabase)
+      // Otherwise, fall back to localStorage
+      let userServers = data.user || []
+      
+      if (!user && typeof window !== "undefined") {
+        // Not authenticated - load from localStorage
+        const storedUserServers = localStorage.getItem("user_servers")
+        userServers = storedUserServers ? JSON.parse(storedUserServers) : []
+      }
+      
+      setServers({
+        system: data.system || [],
+        user: userServers,
+      })
     } catch (err) {
       console.error("Failed to fetch servers:", err)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [user])
 
   React.useEffect(() => {
     fetchServers()
-  }, [fetchServers])
+  }, [fetchServers, user])
 
   const toggleServer = async (serverId: string, type: "system" | "user", enabled: boolean) => {
     // TODO: Implement API call to toggle server
@@ -336,6 +378,16 @@ const KNOWN_SERVERS: Record<string, { url: string; requiresApiKey?: boolean; api
     url: "http://localhost:8931/mcp", 
     requiresApiKey: false 
   },
+  "langchain": {
+    url: "https://langchain-agent-mcp-server-554655392699.us-central1.run.app",
+    requiresApiKey: false, // API key is server-side (OPENAI_API_KEY)
+    apiKeyLink: undefined
+  },
+  "langchain mcp": {
+    url: "https://langchain-agent-mcp-server-554655392699.us-central1.run.app",
+    requiresApiKey: false,
+    apiKeyLink: undefined
+  },
 }
 
 // Helper function to get API key link based on server name or ID
@@ -390,6 +442,7 @@ function AddServerDialog({
   const [naturalLanguageInChat] = React.useState(true) // Always enabled by default
   const [logoFile, setLogoFile] = React.useState<File | null>(null)
   const [logoPreview, setLogoPreview] = React.useState<string | null>(null)
+  const [logoDataUrl, setLogoDataUrl] = React.useState<string | null>(null)
   const [testing, setTesting] = React.useState(false)
   const [testResult, setTestResult] = React.useState<{ success: boolean; message: string } | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -435,10 +488,11 @@ function AddServerDialog({
       // naturalLanguageInChat is always true, no need to reset it
       setTestResult(null)
       setLogoFile(null)
-      if (logoPreview && !logoPreview.startsWith("http")) {
+      if (logoPreview && !logoPreview.startsWith("http") && !logoPreview.startsWith("data:")) {
         URL.revokeObjectURL(logoPreview)
       }
       setLogoPreview(null)
+      setLogoDataUrl(null)
     }
   }, [editingServer])
 
@@ -446,7 +500,16 @@ function AddServerDialog({
     if (file.type.startsWith("image/")) {
       setLogoFile(file)
       const url = URL.createObjectURL(file)
-      setLogoPreview(url)
+      setLogoPreview(url) // For preview display
+      
+      // Also convert to data URL for storage
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        if (reader.result) {
+          setLogoDataUrl(reader.result as string) // Store data URL for saving
+        }
+      }
+      reader.readAsDataURL(file)
     }
   }
 
@@ -558,6 +621,8 @@ function AddServerDialog({
         }
 
         config = {
+          id: serverId || normalizedName,
+          name: name || normalizedName,
           transport: "http",
           url: url,
         }
@@ -622,21 +687,87 @@ function AddServerDialog({
     if (editingServer) {
       // TODO: Implement API call to update server
       console.log("Updating server:", { id: editingServer.id, name, url, apiKey, naturalLanguageInChat: true, logoFile })
+      
+      // Update in localStorage for now
+      const storedUserServers = localStorage.getItem("user_servers")
+      const userServers = storedUserServers ? JSON.parse(storedUserServers) : []
+      const updatedServers = userServers.map((s: McpServer) => 
+        s.id === editingServer.id 
+          ? { ...s, name, url, apiKey: apiKey || s.apiKey, logoUrl: logoPreview || s.logoUrl }
+          : s
+      )
+      localStorage.setItem("user_servers", JSON.stringify(updatedServers))
+      
+      // Dispatch custom event to notify other components
+      window.dispatchEvent(new Event("userServersUpdated"))
     } else {
-      // TODO: Implement API call to add server
-      console.log("Adding server:", { name, url, apiKey, naturalLanguageInChat: true, logoFile })
+      // Determine transport type
+      const normalizedName = name.toLowerCase().trim()
+      const isStdioServer = url === "stdio" || 
+                           normalizedName === "github" || 
+                           normalizedName === "brave" || 
+                           normalizedName === "playwright"
+      
+      const transport = isStdioServer ? "stdio" : "http"
+      
+      // Use data URL if available, otherwise use preview (which might be a URL)
+      const finalLogoUrl = logoDataUrl || logoPreview || undefined
+      
+      // Save server via API (will save to Supabase if authenticated, localStorage if not)
+      try {
+        const response = await fetch("/api/servers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            url: url.trim(),
+            transport,
+            apiKey: apiKey?.trim() || undefined,
+            logoUrl: finalLogoUrl || undefined,
+            description: `Custom MCP server: ${name}`,
+          }),
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          console.log("Added server:", data.server)
+          
+          // If not authenticated, also save to localStorage as fallback
+          if (!user && typeof window !== "undefined") {
+            const storedUserServers = localStorage.getItem("user_servers")
+            const userServers = storedUserServers ? JSON.parse(storedUserServers) : []
+            userServers.push(data.server)
+            localStorage.setItem("user_servers", JSON.stringify(userServers))
+          }
+          
+          // Dispatch custom event to notify other components
+          window.dispatchEvent(new Event("userServersUpdated"))
+          
+          // Refresh server list
+          fetchServers()
+        } else {
+          const errorData = await response.json()
+          console.error("Failed to add server:", errorData.error)
+          alert(`Failed to add server: ${errorData.error || "Unknown error"}`)
+        }
+      } catch (error) {
+        console.error("Error adding server:", error)
+        alert(`Failed to add server: ${error instanceof Error ? error.message : "Unknown error"}`)
+      }
     }
+    
     setOpen(false)
     setName("")
     setUrl("")
     setApiKey("")
     // naturalLanguageInChat is always true, no need to reset it
     setLogoFile(null)
-    if (logoPreview && !logoPreview.startsWith("http")) {
+    if (logoPreview && !logoPreview.startsWith("http") && !logoPreview.startsWith("data:")) {
       URL.revokeObjectURL(logoPreview)
     }
     setLogoPreview(null)
-    onAdd()
+    setLogoDataUrl(null)
+    onAdd() // This will trigger fetchServers
   }
 
   const handleDelete = async () => {
@@ -880,7 +1011,6 @@ function AddServerDialog({
 }
 
 function WorkerMonitoringSection() {
-  const [workers, setWorkers] = React.useState<WorkerStatus[]>([])
   const [metrics, setMetrics] = React.useState<any>(null)
   const [loading, setLoading] = React.useState(true)
   const [metricsHistory, setMetricsHistory] = React.useState<{
@@ -895,11 +1025,6 @@ function WorkerMonitoringSection() {
 
   const fetchData = React.useCallback(async () => {
     try {
-      // Fetch workers
-      const workersRes = await fetch("/api/workers/status", { cache: 'no-store' })
-      const workersData = await workersRes.json()
-      setWorkers(workersData.workers || [])
-
       // Fetch metrics
       const metricsRes = await fetch("/api/metrics", { cache: 'no-store' })
       const metricsData = await metricsRes.json()
@@ -935,7 +1060,7 @@ function WorkerMonitoringSection() {
     return () => clearInterval(interval)
   }, [fetchData])
 
-  if (loading && workers.length === 0) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -945,79 +1070,6 @@ function WorkerMonitoringSection() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Worker Monitoring</h2>
-          <p className="text-sm text-muted-foreground">
-            Real-time worker status and task completion metrics
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-xs text-muted-foreground">Live</span>
-        </div>
-      </div>
-
-      {/* Summary Stats */}
-      {metrics && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Workers</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{metrics.workers?.total || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                {metrics.workers?.active || 0} active, {metrics.workers?.idle || 0} idle
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Tasks Processed</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {(metrics.tasks?.processed || 0).toLocaleString()}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Across all worker types
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Failed Tasks</CardTitle>
-              <AlertCircle className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {(metrics.tasks?.failed || 0).toLocaleString()}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {metrics.tasks?.processed > 0
-                  ? `${((metrics.tasks?.failed / metrics.tasks?.processed) * 100).toFixed(2)}% failure rate`
-                  : "No tasks processed"}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Active Workers</CardTitle>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{metrics.workers?.active || 0}</div>
-              <p className="text-xs text-muted-foreground">
-                Currently processing tasks
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
       {/* Metrics Charts */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <MetricsChart
@@ -1038,27 +1090,6 @@ function WorkerMonitoringSection() {
           data={metricsHistory.active}
           color="hsl(var(--accent))"
         />
-      </div>
-
-      {/* Worker Status Cards */}
-      <div>
-        <h3 className="text-lg font-semibold mb-4">Worker Status</h3>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {workers.map((worker) => (
-            <WorkerStatusCard key={worker.worker_id} worker={worker} />
-          ))}
-          {workers.length === 0 && (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <Activity className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <p className="text-sm font-medium mb-1">No workers available</p>
-                <p className="text-xs text-muted-foreground">
-                  Workers will appear here when they connect
-                </p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
       </div>
     </div>
   )
