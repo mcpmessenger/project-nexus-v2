@@ -165,14 +165,29 @@ export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerCon
   const preview = trimmedKey.length > 10 ? `${trimmedKey.substring(0, 6)}...` : trimmedKey
   console.log(`[MCP Client] Using Google Maps API key from ${source} (length: ${trimmedKey.length}, preview: ${preview})`)
 
+  const userProjectHeader = getCaseInsensitiveHeader(config.headers, "X-Goog-User-Project")
+  const userProjectEnv = process.env.GOOGLE_MAPS_GROUNDING_USER_PROJECT
+  const userProject = userProjectHeader?.trim() || userProjectEnv?.trim()
+
+  const headers: Record<string, string> = {
+    ...config.headers,
+    "X-Goog-Api-Key": trimmedKey,
+  }
+
+  if (userProject) {
+    headers["X-Goog-User-Project"] = userProject
+  } else {
+    console.log(
+      `[MCP Client] No Google billing project specified for Maps Grounding lookup. ` +
+        `Provide it via X-Goog-User-Project header or GOOGLE_MAPS_GROUNDING_USER_PROJECT.`
+    )
+  }
+
   return {
     ...config,
     transport: "http",
     url: GOOGLE_GROUNDING_URL,
-    headers: {
-      ...config.headers,
-      "X-Goog-Api-Key": trimmedKey,
-    },
+    headers,
   }
 }
 
