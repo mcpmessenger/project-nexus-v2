@@ -551,21 +551,44 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
           if (parsedContent === null || parsedContent === undefined) {
             console.warn(`[MCP Client] ⚠️ Parsed content is null/undefined, returning original result instead`)
             console.log(`[MCP Client] Original result structure:`, JSON.stringify(jsonData?.result).substring(0, 500))
-            return jsonData?.result ?? jsonData
+            // Wrap in JsonRpcResponse structure
+            return {
+              jsonrpc: "2.0",
+              id: jsonData.id,
+              result: jsonData?.result ?? jsonData,
+            }
           }
           console.log(`[MCP Client] ✅ Returning parsed content (type: ${typeof parsedContent}, keys: ${typeof parsedContent === 'object' && parsedContent !== null ? Object.keys(parsedContent).length : 'N/A'})`)
-          return parsedContent
+          // Wrap in JsonRpcResponse structure so invokeToolByName can access response.result
+          return {
+            jsonrpc: "2.0",
+            id: jsonData.id,
+            result: parsedContent,
+          }
         } catch (parseError) {
           // If parsing fails, return the text as-is
           console.log(`[MCP Client] Maps API text content is not JSON, returning as string. Parse error: ${parseError instanceof Error ? parseError.message : parseError}`)
-          return textContent.text
+          // Wrap in JsonRpcResponse structure
+          return {
+            jsonrpc: "2.0",
+            id: jsonData.id,
+            result: textContent.text,
+          }
         }
       } else {
         console.log(`[MCP Client] No text content found in Maps API response. Content array length: ${jsonData.result.content?.length || 0}`)
       }
     }
     
-    return jsonData?.result ?? jsonData
+    // Wrap in JsonRpcResponse structure if not already wrapped
+    if (jsonData?.jsonrpc === "2.0" && jsonData?.result !== undefined) {
+      return jsonData
+    }
+    return {
+      jsonrpc: "2.0",
+      id: jsonData?.id,
+      result: jsonData?.result ?? jsonData,
+    }
   }
 
   // Otherwise, try to parse as SSE
