@@ -163,11 +163,13 @@ CRITICAL FOR GOOGLE MAPS:
 - DO NOT just return Google Maps links - you MUST call the Maps API tools to get structured data
 - Common Maps tools include: maps_search_places, maps_get_place_details, maps_get_directions, etc.
 - After calling Maps tools, present the structured data (names, addresses, ratings, etc.) to the user in a helpful format
+- IMPORTANT: When Maps API returns place data, each place will have a "googleMapsUrl" or "mapsUrl" field with a proper Google Maps link - ALWAYS use these URLs when creating "View on Maps" links instead of constructing your own
 - Examples:
   * User says "find me coffee shops in Des Moines" → Call maps_search_places with query="coffee shops in Des Moines" or location="Des Moines" and type="cafe"
   * User says "where is the nearest gas station" → Call maps_search_places with appropriate location and type parameters
   * User says "directions from A to B" → Call maps_get_directions with origin and destination
 - Always use the actual Maps API tools to get real data, not just links
+- When displaying places, use the "googleMapsUrl" or "mapsUrl" field from the API response for the "View on Maps" links
 
 CRITICAL FOR PLAYWRIGHT SCREENSHOTS:
 - When users request screenshots, you MUST use the tool named EXACTLY: playwright_browser_take_screenshot
