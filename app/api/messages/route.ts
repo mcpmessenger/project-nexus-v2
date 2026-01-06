@@ -185,7 +185,9 @@ CRITICAL FOR PLAYWRIGHT SCREENSHOTS:
 SCREENSHOT WORKFLOW (MANDATORY - FOLLOW EXACTLY):
 - User requests screenshot → 
   1. Call playwright_browser_navigate with url parameter (e.g., url="https://example.com")
-  2. IMMEDIATELY call playwright_browser_take_screenshot with NO arguments (this is the ONLY tool that produces images - do NOT use playwright_browser_snapshot, do NOT use playwright_browser_select_option, do NOT use any other tool)
+  2. Wait a moment for the page to fully load (the system will handle this automatically)
+  3. Call playwright_browser_take_screenshot with NO arguments (this is the ONLY tool that produces images - do NOT use playwright_browser_snapshot, do NOT use playwright_browser_select_option, do NOT use any other tool)
+- IMPORTANT: When screenshots are taken, DO NOT include base64 image data in your text response. The system automatically extracts and displays images. Just describe what you see in the screenshot.
 
 Examples:
 - User says "/playwright go to example.com and take a screenshot" → 
@@ -423,6 +425,16 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
             const args = JSON.parse(toolCall.function.arguments)
             const argsStr = JSON.stringify(args) || '{}'
             console.log(`[API] Calling tool: ${toolCall.function.name} with args:`, argsStr.length > 200 ? argsStr.substring(0, 200) + '...' : argsStr)
+            
+            // If this is a screenshot call after navigation, add a delay to ensure page is loaded
+            if (toolCall.function.name === 'playwright_browser_take_screenshot') {
+              const hasNavigation = allToolResults.some(tr => tr.name === 'playwright_browser_navigate')
+              if (hasNavigation) {
+                console.log(`[API] ⏳ Screenshot requested after navigation - waiting 2 seconds for page to fully load...`)
+                await new Promise(resolve => setTimeout(resolve, 2000))
+              }
+            }
+            
             const result = await invokeToolByName(toolCall.function.name, args, invocationOptions)
             let resultStr: string
             try {
@@ -505,8 +517,9 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
         if (navigateSucceeded && !screenshotToolCalled) {
           console.log(`[API Messages] 🔧 Auto-injecting screenshot tool call after successful navigation`)
           try {
-            // Wait a moment for page to fully load after navigation
-            await new Promise(resolve => setTimeout(resolve, 1000))
+            // Wait for page to fully load after navigation (increased delay for better reliability)
+            console.log(`[API Messages] ⏳ Waiting 2 seconds for page to fully load...`)
+            await new Promise(resolve => setTimeout(resolve, 2000))
             
             const screenshotResult = await invokeToolByName('playwright_browser_take_screenshot', {}, invocationOptions)
             console.log(`[API Messages] 📸 Screenshot result type: ${typeof screenshotResult}, keys: ${screenshotResult && typeof screenshotResult === 'object' ? Object.keys(screenshotResult).join(', ') : 'N/A'}`)
@@ -786,6 +799,16 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
       }
     }
 
+    // Clean up assistant message - remove base64 data if screenshot was extracted
+    let cleanedContent = assistantMessage
+    if (extractedImageData && assistantMessage) {
+      // Remove base64 data URLs from the text content (they're in imageUrl field)
+      // Pattern: data:image/...;base64,<long base64 string>
+      cleanedContent = assistantMessage.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+\/]{100,}={0,2}/g, '[Screenshot image]')
+      // Also remove any very long base64 strings that might be in the text
+      cleanedContent = cleanedContent.replace(/[A-Za-z0-9+\/]{500,}={0,2}/g, '[Image data]')
+    }
+
     // Create message structure for logging
     const message = {
       message_id: crypto.randomUUID(),
@@ -794,7 +817,7 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
       type: imageUrl ? "vision" : "chat",
       created_at: new Date().toISOString(),
       payload: {
-        content: assistantMessage,
+        content: cleanedContent,
         model: completion.model,
         usage: completion.usage,
       },
@@ -806,7 +829,7 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
     return NextResponse.json({
       success: true,
       message_id: message.message_id,
-      content: assistantMessage,
+      content: cleanedContent,
       imageUrl: extractedImageData || undefined,
       model: completion.model,
     });
