@@ -502,15 +502,19 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
     try {
       const textResult = await response.text()
       bodyText = typeof textResult === 'string' ? textResult : String(textResult || '')
+      console.log(`[MCP Client] Maps API response body length: ${bodyText.length}, preview: ${bodyText.substring(0, 100)}`)
     } catch (textError) {
+      console.error(`[MCP Client] Error reading response body:`, textError)
       bodyText = 'Unable to read response body'
     }
     
     let jsonData: any
     try {
       jsonData = JSON.parse(bodyText || '{}')
+      console.log(`[MCP Client] Successfully parsed JSON response`)
     } catch (parseError) {
-      const preview = bodyText && bodyText.length > 0 ? bodyText.substring(0, 500) : 'empty response'
+      const preview = bodyText && typeof bodyText === 'string' && bodyText.length > 0 ? bodyText.substring(0, 500) : 'empty response'
+      console.error(`[MCP Client] Failed to parse JSON. Status: ${response.status}, Body preview: ${preview}`)
       throw new Error(`Failed to parse JSON response from Maps API. Status: ${response.status}. Body: ${preview}`)
     }
     
@@ -531,9 +535,13 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
   }
 
   // Otherwise, try to parse as SSE
+  if (!response.body) {
+    throw new Error("Response body is null or undefined")
+  }
+  
   const parsed = await readSseJson(response.body)
   if (parsed.error) {
-    throw new Error(parsed.error.message)
+    throw new Error(parsed.error.message || 'Unknown SSE error')
   }
 
   return parsed.result ?? parsed
