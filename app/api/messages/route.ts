@@ -614,8 +614,14 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
         for (const toolResult of allToolResults) {
           try {
             const resultContent = toolResult.rawResult
-            const resultStr = JSON.stringify(resultContent).substring(0, 500)
-            console.log(`[API] Checking tool result from ${toolResult.name}:`, resultStr)
+            let resultStr: string
+            try {
+              resultStr = JSON.stringify(resultContent) || 'null'
+            } catch (e) {
+              resultStr = `[Unable to stringify: ${e instanceof Error ? e.message : String(e)}]`
+            }
+            const preview = resultStr.length > 500 ? resultStr.substring(0, 500) + '...' : resultStr
+            console.log(`[API] Checking tool result from ${toolResult.name}:`, preview)
             
             // Warn if screenshot tool wasn't called
             if (toolResult.name.includes("playwright") && !toolResult.name.includes("take_screenshot")) {
@@ -624,7 +630,14 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
             
             // Special logging for screenshot tool results
             if (toolResult.name === 'playwright_browser_take_screenshot') {
-              console.log(`[API] 🔍 Screenshot tool result structure:`, JSON.stringify(resultContent, null, 2).substring(0, 1000))
+              let screenshotStr: string
+              try {
+                screenshotStr = JSON.stringify(resultContent, null, 2) || 'null'
+              } catch (e) {
+                screenshotStr = `[Unable to stringify: ${e instanceof Error ? e.message : String(e)}]`
+              }
+              const screenshotPreview = screenshotStr.length > 1000 ? screenshotStr.substring(0, 1000) + '...' : screenshotStr
+              console.log(`[API] 🔍 Screenshot tool result structure:`, screenshotPreview)
               console.log(`[API] 🔍 Screenshot tool result type:`, typeof resultContent)
               if (resultContent && typeof resultContent === 'object') {
                 console.log(`[API] 🔍 Screenshot tool result keys:`, Object.keys(resultContent))
@@ -647,7 +660,8 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
                 }
               } catch (fileError) {
                 // Not a valid file path, continue with other checks
-                console.log(`[API] String result is not a valid file path: ${resultContent.substring(0, 100)}`)
+                const pathPreview = typeof resultContent === 'string' && resultContent.length > 0 ? resultContent.substring(0, 100) : String(resultContent || 'empty')
+                console.log(`[API] String result is not a valid file path: ${pathPreview}`)
               }
             }
             
@@ -741,7 +755,14 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
             if (screenshotResult) {
               console.warn(`[API] ⚠️ Screenshot tool WAS called but extraction failed!`)
               console.warn(`[API] ⚠️ Screenshot result type: ${typeof screenshotResult.rawResult}`)
-              console.warn(`[API] ⚠️ Screenshot result structure: ${JSON.stringify(screenshotResult.rawResult).substring(0, 1000)}`)
+              let screenshotResultStr: string
+              try {
+                screenshotResultStr = JSON.stringify(screenshotResult.rawResult) || 'null'
+              } catch (e) {
+                screenshotResultStr = `[Unable to stringify: ${e instanceof Error ? e.message : String(e)}]`
+              }
+              const screenshotResultPreview = screenshotResultStr.length > 1000 ? screenshotResultStr.substring(0, 1000) + '...' : screenshotResultStr
+              console.warn(`[API] ⚠️ Screenshot result structure: ${screenshotResultPreview}`)
             }
           }
         } else {
