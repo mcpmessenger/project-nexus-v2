@@ -496,12 +496,14 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
 
   if (isJsonResponse) {
     // Parse as plain JSON instead of SSE
+    // Read body as text first (can only read once), then parse as JSON
+    const bodyText = await response.text().catch(() => 'Unable to read response body')
     let jsonData: any
     try {
-      jsonData = await response.json()
+      jsonData = JSON.parse(typeof bodyText === 'string' ? bodyText : String(bodyText))
     } catch (parseError) {
-      const bodyText = await response.text().catch(() => 'Unable to read response body')
-      throw new Error(`Failed to parse JSON response from Maps API. Status: ${response.status}. Body: ${typeof bodyText === 'string' ? bodyText.substring(0, 500) : String(bodyText)}`)
+      const preview = typeof bodyText === 'string' && bodyText.length > 0 ? bodyText.substring(0, 500) : String(bodyText || 'empty response')
+      throw new Error(`Failed to parse JSON response from Maps API. Status: ${response.status}. Body: ${preview}`)
     }
     
     // Check for standard JSON-RPC error format
@@ -657,8 +659,9 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
             },
           }
         } else {
-          const errorText = await toolsResponse.text()
-          console.log(`[MCP Client] /tools endpoint returned ${toolsResponse.status}: ${errorText.substring(0, 200)}`)
+          const errorText = await toolsResponse.text().catch(() => 'Unable to read error response')
+          const errorPreview = typeof errorText === 'string' && errorText.length > 0 ? errorText.substring(0, 200) : String(errorText || 'empty response')
+          console.log(`[MCP Client] /tools endpoint returned ${toolsResponse.status}: ${errorPreview}`)
           // Fall through to return empty array (client will use hardcoded tool)
         }
       } catch (e) {
