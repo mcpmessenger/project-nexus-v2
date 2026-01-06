@@ -502,7 +502,8 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
     try {
       const textResult = await response.text()
       bodyText = typeof textResult === 'string' ? textResult : String(textResult || '')
-      console.log(`[MCP Client] Maps API response body length: ${bodyText.length}, preview: ${bodyText.substring(0, 100)}`)
+      const preview = typeof bodyText === 'string' && bodyText.length > 0 ? bodyText.substring(0, 100) : 'empty'
+      console.log(`[MCP Client] Maps API response body length: ${bodyText.length}, preview: ${preview}`)
     } catch (textError) {
       console.error(`[MCP Client] Error reading response body:`, textError)
       bodyText = 'Unable to read response body'
@@ -529,6 +530,23 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
       const errorText = jsonData.result.content?.find((c: any) => c.type === "text")?.text || 
                        JSON.stringify(jsonData.result)
       throw new Error(typeof errorText === 'string' ? errorText : String(errorText))
+    }
+    
+    // Handle Google Maps response format: result.content[0].text contains JSON string
+    if (jsonData?.result && typeof jsonData.result === 'object' && Array.isArray(jsonData.result.content)) {
+      const textContent = jsonData.result.content.find((c: any) => c.type === "text")
+      if (textContent && typeof textContent.text === 'string') {
+        try {
+          // Parse the JSON string in the text field
+          const parsedContent = JSON.parse(textContent.text)
+          console.log(`[MCP Client] Parsed Maps API content from text field`)
+          return parsedContent
+        } catch (parseError) {
+          // If parsing fails, return the text as-is
+          console.log(`[MCP Client] Maps API text content is not JSON, returning as string`)
+          return textContent.text
+        }
+      }
     }
     
     return jsonData?.result ?? jsonData
