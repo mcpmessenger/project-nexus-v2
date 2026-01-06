@@ -450,10 +450,11 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
   const isJsonResponse = contentType.includes("application/json")
   
   if (!response.ok) {
-    const bodyText = await response.text()
+    const bodyText = await response.text().catch(() => 'Unable to read response body')
+    const bodyPreview = typeof bodyText === 'string' && bodyText.length > 0 ? bodyText.substring(0, 500) : String(bodyText || 'empty response')
     
     // Try to parse as JSON to extract helpful error messages (especially for Google Maps)
-    if (isJsonResponse) {
+    if (isJsonResponse && typeof bodyText === 'string' && bodyText.length > 0) {
       try {
         const errorJson = JSON.parse(bodyText)
         
@@ -490,19 +491,26 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
     
     // Generic error for non-JSON or unparseable responses
     throw new Error(
-      `MCP HTTP transport responded with ${response.status}. Body: ${bodyText.substring(0, 500)}`
+      `MCP HTTP transport responded with ${response.status}. Body: ${bodyPreview}`
     )
   }
 
   if (isJsonResponse) {
     // Parse as plain JSON instead of SSE
     // Read body as text first (can only read once), then parse as JSON
-    const bodyText = await response.text().catch(() => 'Unable to read response body')
+    let bodyText: string
+    try {
+      const textResult = await response.text()
+      bodyText = typeof textResult === 'string' ? textResult : String(textResult || '')
+    } catch (textError) {
+      bodyText = 'Unable to read response body'
+    }
+    
     let jsonData: any
     try {
-      jsonData = JSON.parse(typeof bodyText === 'string' ? bodyText : String(bodyText))
+      jsonData = JSON.parse(bodyText || '{}')
     } catch (parseError) {
-      const preview = typeof bodyText === 'string' && bodyText.length > 0 ? bodyText.substring(0, 500) : String(bodyText || 'empty response')
+      const preview = bodyText && bodyText.length > 0 ? bodyText.substring(0, 500) : 'empty response'
       throw new Error(`Failed to parse JSON response from Maps API. Status: ${response.status}. Body: ${preview}`)
     }
     
