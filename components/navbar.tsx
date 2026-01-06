@@ -27,6 +27,7 @@ export function Navbar() {
 
   const isChatPage = pathname === "/workflows"
   const isRegistryPage = pathname === "/monitoring"
+  const avatarImageClassName = user?.avatar_url ? undefined : "dark:invert"
 
   return (
     <nav className="border-b border-border/40 bg-card/50 backdrop-blur-sm">
@@ -78,10 +79,10 @@ export function Navbar() {
               <DropdownMenuTrigger asChild>
                 <HoverIconButton className="h-9 w-9">
                   <Avatar className="h-7 w-7">
-                    <AvatarImage 
-                      src={user.avatar_url || "/placeholder-user.svg"} 
+                    <AvatarImage
+                      src={user.avatar_url || "/placeholder-user.svg"}
                       alt={user.name}
-                      className="dark:invert"
+                      className={avatarImageClassName}
                     />
                     <AvatarFallback className="text-xs text-foreground">{user.name.charAt(0).toUpperCase()}</AvatarFallback>
                   </Avatar>

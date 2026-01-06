@@ -110,6 +110,7 @@ function generateUUID(): string {
 
 export default function WorkflowsPage() {
   const { user } = useAuth()
+  const avatarImageClassName = user?.avatar_url ? undefined : "dark:invert"
   const [messages, setMessages] = React.useState<Message[]>([])
   const [input, setInput] = React.useState("")
   const [isLoading, setIsLoading] = React.useState(false)
@@ -237,6 +238,12 @@ export default function WorkflowsPage() {
             name: server.name,
             transport: server.id === "playwright" ? "stdio" : "http",
             headers: {},
+          }
+          if (server.id === "maps" && typeof window !== "undefined") {
+            const storedMapsKey = localStorage.getItem("google_maps_api_key")
+            if (storedMapsKey) {
+              config.headers["X-Goog-Api-Key"] = storedMapsKey.trim()
+            }
           }
           
           if (server.id === "playwright") {
@@ -563,7 +570,6 @@ export default function WorkflowsPage() {
         if (chatProvider === "openai") {
           const rawKey = localStorage.getItem("openai_api_key")
           userApiKey = rawKey ? rawKey.trim() : null
-          // Debug: log key length and first few chars (for troubleshooting)
           if (userApiKey) {
             console.log(`[Workflows] Retrieved OpenAI key from localStorage (length: ${userApiKey.length}, starts with: ${userApiKey.substring(0, Math.min(10, userApiKey.length))}...)`)
           }
@@ -571,6 +577,50 @@ export default function WorkflowsPage() {
           userApiKey = localStorage.getItem("anthropic_api_key")?.trim() || null
         } else if (chatProvider === "google") {
           userApiKey = localStorage.getItem("gemini_api_key")?.trim() || null
+        }
+      }
+      let mapsApiKey: string | null = null
+      if (typeof window !== "undefined") {
+        const storedMapsKey = localStorage.getItem("google_maps_api_key")
+        if (storedMapsKey) {
+          // Extract API key from various formats (curl command, header, etc.)
+          let cleanedKey = storedMapsKey.trim()
+          // If it looks like a curl command, extract the key
+          const curlMatch = cleanedKey.match(/X-Goog-Api-Key:\s*([A-Za-z0-9_-]+)/i)
+          if (curlMatch) {
+            cleanedKey = curlMatch[1]
+          } else {
+            // If it contains "AIza" or common typo "Alza", extract just the key part
+            let keyMatch = cleanedKey.match(/(AIza[A-Za-z0-9_-]{25,})/)
+            if (!keyMatch) {
+              // Try to match common typo "Alza" (lowercase L instead of uppercase I)
+              keyMatch = cleanedKey.match(/(Alza[A-Za-z0-9_-]{25,})/)
+              if (keyMatch) {
+                // Fix the typo: replace "Alza" with "AIza"
+                cleanedKey = "AIza" + keyMatch[1].substring(4)
+                // Save the corrected key back to localStorage
+                localStorage.setItem("google_maps_api_key", cleanedKey)
+                console.log(`[Workflows] Fixed typo in Maps API key: "Alza" -> "AIza"`)
+              }
+            } else {
+              cleanedKey = keyMatch[1]
+            }
+          }
+          
+          // Fix common typo if key starts with "Alza" instead of "AIza"
+          if (cleanedKey.startsWith("Alza")) {
+            cleanedKey = "AIza" + cleanedKey.substring(4)
+            // Save the corrected key back to localStorage
+            localStorage.setItem("google_maps_api_key", cleanedKey)
+            console.log(`[Workflows] Fixed typo in Maps API key: "Alza" -> "AIza"`)
+          }
+          
+          if (cleanedKey && cleanedKey.startsWith("AIza")) {
+            mapsApiKey = cleanedKey
+            console.log(`[Workflows] Using Maps API key from localStorage (length: ${mapsApiKey.length}, starts with: ${mapsApiKey.substring(0, 10)}...)`)
+          } else {
+            console.warn(`[Workflows] Invalid Maps API key format in localStorage. Key should start with "AIza"`)
+          }
         }
       }
 
@@ -583,6 +633,7 @@ export default function WorkflowsPage() {
           imageUrl: imageBase64,
           provider: chatProvider,
           apiKey: userApiKey,
+          mapsApiKey,
         }),
       })
 
@@ -995,10 +1046,10 @@ export default function WorkflowsPage() {
               </Card>
               {message.role === "user" && (
                 <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage 
-                    src={user?.avatar_url || "/placeholder-user.svg"} 
+                  <AvatarImage
+                    src={user?.avatar_url || "/placeholder-user.svg"}
                     alt={user?.name || "Guest"}
-                    className="dark:invert"
+                    className={avatarImageClassName}
                   />
                   <AvatarFallback className="text-xs text-foreground">
                     {user ? user.name.charAt(0).toUpperCase() : "G"}

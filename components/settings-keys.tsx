@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, Loader2, CheckCircle2, XCircle } from "lucide-react"
 import { useAuth } from "./auth-provider"
 
 interface ApiKeysSettingsProps {
@@ -25,10 +25,52 @@ export function ApiKeysSettings({ open, onOpenChange }: ApiKeysSettingsProps) {
   const [openaiKey, setOpenaiKey] = React.useState("")
   const [anthropicKey, setAnthropicKey] = React.useState("")
   const [geminiKey, setGeminiKey] = React.useState("")
+  const [googleMapsKey, setGoogleMapsKey] = React.useState("")
   const [showOpenaiKey, setShowOpenaiKey] = React.useState(false)
   const [showAnthropicKey, setShowAnthropicKey] = React.useState(false)
   const [showGeminiKey, setShowGeminiKey] = React.useState(false)
+  const [showGoogleMapsKey, setShowGoogleMapsKey] = React.useState(false)
   const [saved, setSaved] = React.useState(false)
+  const [testingMapsKey, setTestingMapsKey] = React.useState(false)
+  const [mapsKeyTestResult, setMapsKeyTestResult] = React.useState<{ success: boolean; message: string } | null>(null)
+
+  // Helper to extract API key from various formats (curl command, header, etc.)
+  const extractApiKey = (input: string): string => {
+    const trimmed = input.trim()
+    // If it looks like a curl command, extract the key
+    const curlMatch = trimmed.match(/X-Goog-Api-Key:\s*([A-Za-z0-9_-]+)/i)
+    if (curlMatch) {
+      let key = curlMatch[1]
+      // Fix common typo: "Alza" -> "AIza" (lowercase L -> uppercase I)
+      if (key.startsWith("Alza")) {
+        key = "AIza" + key.substring(4)
+      }
+      return key
+    }
+    // If it contains "AIza" or common typo "Alza" (Google API key prefix), extract just the key part
+    // Google API keys start with "AIza" followed by alphanumeric, dashes, underscores
+    // They're typically 39 characters but can vary
+    // Match "AIza" or "Alza" followed by at least 25 more characters (total ~30+)
+    let keyMatch = trimmed.match(/(AIza[A-Za-z0-9_-]{25,})/)
+    if (!keyMatch) {
+      // Try to match common typo "Alza" (lowercase L instead of uppercase I)
+      keyMatch = trimmed.match(/(Alza[A-Za-z0-9_-]{25,})/)
+      if (keyMatch) {
+        // Fix the typo: replace "Alza" with "AIza"
+        const fixedKey = "AIza" + keyMatch[1].substring(4)
+        return fixedKey
+      }
+    }
+    if (keyMatch) {
+      return keyMatch[1]
+    }
+    // Otherwise return as-is (might already be just the key)
+    // But fix common typo if present
+    if (trimmed.startsWith("Alza")) {
+      return "AIza" + trimmed.substring(4)
+    }
+    return trimmed
+  }
 
   // Load keys from localStorage on mount
   React.useEffect(() => {
@@ -36,12 +78,91 @@ export function ApiKeysSettings({ open, onOpenChange }: ApiKeysSettingsProps) {
       const savedOpenaiKey = localStorage.getItem("openai_api_key") || ""
       const savedAnthropicKey = localStorage.getItem("anthropic_api_key") || ""
       const savedGeminiKey = localStorage.getItem("gemini_api_key") || ""
+      const savedGoogleMapsKey = localStorage.getItem("google_maps_api_key") || ""
       setOpenaiKey(savedOpenaiKey)
       setAnthropicKey(savedAnthropicKey)
       setGeminiKey(savedGeminiKey)
+      // Clean the Google Maps key when loading (in case it was saved incorrectly)
+      const cleanedMapsKey = savedGoogleMapsKey ? extractApiKey(savedGoogleMapsKey) : ""
+      setGoogleMapsKey(cleanedMapsKey)
+      // If we cleaned it and it's different, save the cleaned version back
+      if (savedGoogleMapsKey && cleanedMapsKey && cleanedMapsKey !== savedGoogleMapsKey && cleanedMapsKey.startsWith("AIza")) {
+        localStorage.setItem("google_maps_api_key", cleanedMapsKey)
+      }
       setSaved(false)
+      setMapsKeyTestResult(null) // Clear test result when opening
     }
   }, [open])
+
+  const handleTestMapsKey = async () => {
+    if (!googleMapsKey.trim()) {
+      setMapsKeyTestResult({ success: false, message: "Please enter an API key first" })
+      return
+    }
+
+    setTestingMapsKey(true)
+    setMapsKeyTestResult(null)
+
+    try {
+      const cleanedKey = extractApiKey(googleMapsKey)
+      if (!cleanedKey || !cleanedKey.startsWith("AIza")) {
+        setMapsKeyTestResult({ 
+          success: false, 
+          message: "Invalid key format. Key should start with 'AIza'" 
+        })
+        setTestingMapsKey(false)
+        return
+      }
+
+      // Test the key by calling the Maps API
+      const response = await fetch("/api/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "health",
+          config: {
+            id: "maps",
+            name: "Google Maps Grounding",
+            transport: "http",
+            url: "https://mapstools.googleapis.com/mcp",
+            headers: {
+              "X-Goog-Api-Key": cleanedKey,
+            },
+          },
+        }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.status?.healthy) {
+        setMapsKeyTestResult({ 
+          success: true, 
+          message: data.status.message || "API key is valid and working!" 
+        })
+      } else {
+        let errorMsg = data.status?.message || data.error || "Connection failed"
+        
+        // Extract project ID from error message if present
+        const projectIdMatch = errorMsg.match(/project (\d+)/)
+        if (projectIdMatch) {
+          const projectId = projectIdMatch[1]
+          errorMsg += `\n\n⚠️ Your API key belongs to project ${projectId}. Make sure the Maps Grounding Lite API is enabled in that project.`
+        }
+        
+        setMapsKeyTestResult({ 
+          success: false, 
+          message: errorMsg 
+        })
+      }
+    } catch (error) {
+      setMapsKeyTestResult({ 
+        success: false, 
+        message: error instanceof Error ? error.message : "Failed to test API key" 
+      })
+    } finally {
+      setTestingMapsKey(false)
+    }
+  }
 
   const handleSave = () => {
     if (openaiKey.trim()) {
@@ -58,6 +179,19 @@ export function ApiKeysSettings({ open, onOpenChange }: ApiKeysSettingsProps) {
       localStorage.setItem("gemini_api_key", geminiKey.trim())
     } else {
       localStorage.removeItem("gemini_api_key")
+    }
+    if (googleMapsKey.trim()) {
+      const cleanedKey = extractApiKey(googleMapsKey)
+      if (cleanedKey && cleanedKey.startsWith("AIza")) {
+        localStorage.setItem("google_maps_api_key", cleanedKey)
+      } else {
+        // Invalid key format - don't save
+        console.warn("Invalid Google Maps API key format. Key should start with 'AIza'")
+        alert("Invalid Google Maps API key format. Please enter just the API key (starts with 'AIza'), not the full curl command.")
+        return
+      }
+    } else {
+      localStorage.removeItem("google_maps_api_key")
     }
     setSaved(true)
     setTimeout(() => {
@@ -251,6 +385,89 @@ export function ApiKeysSettings({ open, onOpenChange }: ApiKeysSettingsProps) {
               >
                 Google AI Studio
               </a>
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="google-maps-key">Google Maps Grounding API Key</Label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  id="google-maps-key"
+                  type={showGoogleMapsKey ? "text" : "password"}
+                  value={googleMapsKey}
+                  onChange={(e) => {
+                    setGoogleMapsKey(e.target.value)
+                    setMapsKeyTestResult(null) // Clear test result when typing
+                  }}
+                  placeholder="AIza..."
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3"
+                  onClick={() => setShowGoogleMapsKey(!showGoogleMapsKey)}
+                >
+                  {showGoogleMapsKey ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTestMapsKey}
+                disabled={testingMapsKey || !googleMapsKey.trim()}
+                className="shrink-0"
+              >
+                {testingMapsKey ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Testing...
+                  </>
+                ) : (
+                  "Test"
+                )}
+              </Button>
+            </div>
+            {mapsKeyTestResult && (
+              <div className={`flex items-center gap-2 text-sm ${
+                mapsKeyTestResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+              }`}>
+                {mapsKeyTestResult.success ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <XCircle className="h-4 w-4" />
+                )}
+                <span>{mapsKeyTestResult.message}</span>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Used by `/maps` commands to authenticate with Google Maps Grounding Lite. Store a key from{" "}
+              <a
+                href="https://console.cloud.google.com/apis/credentials"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                Google Cloud
+              </a>
+              . Click "Test" to verify your key works.
+              <br />
+              <strong>Important:</strong> Make sure the{" "}
+              <a
+                href="https://console.cloud.google.com/apis/library/mapstools.googleapis.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                Maps Grounding Lite API
+              </a>
+              {" "}is enabled for your Google Cloud project.
             </p>
           </div>
         </div>

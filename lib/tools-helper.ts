@@ -82,19 +82,28 @@ const GOOGLE_GROUNDING_ID = "google-maps-grounding"
  */
 function applyServerConfig(serverId: string, config: McpRouteConfigInput): McpRouteConfigInput {
   if (serverId === 'maps' || serverId === GOOGLE_GROUNDING_ID) {
-    // Google Maps needs API key from env
-    const apiKey = process.env.GOOGLE_MAPS_GROUNDING_API_KEY
-    if (!apiKey) {
-      console.warn(`[Tools Helper] Warning: GOOGLE_MAPS_GROUNDING_API_KEY environment variable not set. Maps tools will not work without an API key.`)
-    }
-    if (apiKey && config.transport === 'http') {
+    const existingHeader =
+      config.headers?.['X-Goog-Api-Key'] ?? config.headers?.['x-goog-api-key']
+    if (existingHeader || config.transport !== 'http') {
       return {
         ...config,
         headers: {
           ...(config.headers || {}),
-          'X-Goog-Api-Key': apiKey,
+          ...(existingHeader ? { 'X-Goog-Api-Key': existingHeader } : {}),
         },
       }
+    }
+    const apiKey = process.env.GOOGLE_MAPS_GROUNDING_API_KEY
+    if (!apiKey) {
+      console.warn(`[Tools Helper] Warning: GOOGLE_MAPS_GROUNDING_API_KEY environment variable not set. Maps tools will not work without an API key.`)
+      return config
+    }
+    return {
+      ...config,
+      headers: {
+        ...(config.headers || {}),
+        'X-Goog-Api-Key': apiKey,
+      },
     }
   }
   
@@ -280,7 +289,10 @@ function convertToolToOpenAIFunction(
 /**
  * Fetch tools from a single server using MCP client directly
  */
-async function fetchToolsFromServer(server: SystemServer): Promise<ToolSchema[]> {
+async function fetchToolsFromServer(
+  server: SystemServer,
+  options?: { googleMapsApiKey?: string | null }
+): Promise<ToolSchema[]> {
   try {
     console.log(`[Tools Helper] Attempting to fetch tools from server: ${server.id}`)
     
@@ -319,6 +331,15 @@ async function fetchToolsFromServer(server: SystemServer): Promise<ToolSchema[]>
     
     // Apply server-specific config transformations
     config = applyServerConfig(server.id, config)
+    if (
+      options?.googleMapsApiKey &&
+      (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID)
+    ) {
+      config.headers = {
+        ...(config.headers || {}),
+        'X-Goog-Api-Key': options.googleMapsApiKey,
+      }
+    }
     console.log(`[Tools Helper] Server ${server.id} config:`, JSON.stringify({ 
       transport: config.transport, 
       command: config.command, 
@@ -377,7 +398,9 @@ async function fetchToolsFromServer(server: SystemServer): Promise<ToolSchema[]>
 /**
  * Get all available tools from system servers and convert to OpenAI format
  */
-export async function getAvailableToolsAsOpenAIFunctions(): Promise<
+export async function getAvailableToolsAsOpenAIFunctions(
+  options?: { googleMapsApiKey?: string | null }
+): Promise<
   OpenAI.Chat.Completions.ChatCompletionTool[]
 > {
   try {
@@ -397,7 +420,9 @@ export async function getAvailableToolsAsOpenAIFunctions(): Promise<
     console.log(`[Tools Helper] Found ${servers.length} enabled system servers`)
 
     // Fetch tools from all servers in parallel
-    const toolPromises = servers.map((server) => fetchToolsFromServer(server as SystemServer))
+    const toolPromises = servers.map((server) =>
+      fetchToolsFromServer(server as SystemServer, options)
+    )
     const toolArrays = await Promise.all(toolPromises)
 
     // Flatten and convert to OpenAI format
@@ -532,9 +557,14 @@ function enhancePlaywrightNavigationArgs(toolName: string, args: Record<string, 
 /**
  * Invoke a tool by its namespaced name (server_toolname)
  */
+interface InvokeToolOptions {
+  googleMapsApiKey?: string | null
+}
+
 export async function invokeToolByName(
   functionName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  options?: InvokeToolOptions
 ): Promise<unknown> {
   // Parse server_toolname format (using _ separator, OpenAI compatible)
   // Find the first underscore to split server ID from tool name
@@ -576,14 +606,49 @@ export async function invokeToolByName(
   config.id = server.id
   config.name = server.name
   
+  // For Maps servers, set user-provided key FIRST (before applyServerConfig)
+  // so it takes precedence over env vars
+  if (
+    options?.googleMapsApiKey &&
+    (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID)
+  ) {
+    config.headers = {
+      ...(config.headers || {}),
+      'X-Goog-Api-Key': options.googleMapsApiKey.trim(),
+    }
+    console.log(`[Tools Helper] Using user-provided Maps API key (length: ${options.googleMapsApiKey.trim().length})`)
+  }
+  
   // Apply server-specific config transformations
   config = applyServerConfig(server.id, config)
   
+  // Ensure user-provided key is still set (applyServerConfig might have overwritten it)
+  if (
+    options?.googleMapsApiKey &&
+    (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID)
+  ) {
+    const trimmedKey = options.googleMapsApiKey.trim()
+    config.headers = {
+      ...(config.headers || {}),
+      'X-Goog-Api-Key': trimmedKey,
+    }
+    console.log(`[Tools Helper] ✅ Set user-provided Maps API key in headers (length: ${trimmedKey.length}, starts with: ${trimmedKey.substring(0, 10)}...)`)
+  }
+  
   let mcpConfig = buildMcpConfig(config)
   
-  // Apply Google Maps config if needed
-  if (server.id === GOOGLE_GROUNDING_ID) {
-    mcpConfig = ensureManagedGoogleConfig(mcpConfig)
+  // Apply Google Maps config if needed (check both "maps" and "google-maps-grounding")
+  // ensureManagedGoogleConfig will prefer the header key if it exists
+  if (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID) {
+    try {
+      const keyBefore = mcpConfig.headers['X-Goog-Api-Key'] || mcpConfig.headers['x-goog-api-key']
+      mcpConfig = ensureManagedGoogleConfig(mcpConfig)
+      const keyAfter = mcpConfig.headers['X-Goog-Api-Key'] || mcpConfig.headers['x-goog-api-key']
+      console.log(`[Tools Helper] Maps config applied. Key before: ${keyBefore ? `${keyBefore.substring(0, 10)}... (${keyBefore.length} chars)` : 'none'}, Key after: ${keyAfter ? `${keyAfter.substring(0, 10)}... (${keyAfter.length} chars)` : 'none'}`)
+    } catch (error) {
+      // If API key is missing, log warning but don't fail - let it fail when calling the API
+      console.warn(`[Tools Helper] Warning: ${server.id} API key not configured. Tools may not work.`, error instanceof Error ? error.message : error)
+    }
   }
   
   validateManagedServerConfig(mcpConfig)

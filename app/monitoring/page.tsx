@@ -450,6 +450,8 @@ function AddServerDialog({
   const [logoDataUrl, setLogoDataUrl] = React.useState<string | null>(null)
   const [testing, setTesting] = React.useState(false)
   const [testResult, setTestResult] = React.useState<{ success: boolean; message: string } | null>(null)
+  const [testingApiKey, setTestingApiKey] = React.useState(false)
+  const [apiKeyTestResult, setApiKeyTestResult] = React.useState<{ success: boolean; message: string } | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   // Auto-populate URL based on server name
@@ -464,7 +466,7 @@ function AddServerDialog({
   }, [name, url, editingServer])
 
   React.useEffect(() => {
-    if (editingServer) {
+      if (editingServer) {
       setName(editingServer.name)
       // Prepopulate URL for system servers
       const serverId = editingServer.id.toLowerCase()
@@ -477,6 +479,8 @@ function AddServerDialog({
         savedApiKey = localStorage.getItem("github_personal_access_token") || editingServer.apiKey || ""
       } else if (serverId === "exa" || serverId.includes("exa")) {
         savedApiKey = localStorage.getItem("exa_api_key") || editingServer.apiKey || ""
+      } else if (serverId.includes("maps") || serverId.includes("google")) {
+        savedApiKey = localStorage.getItem("google_maps_api_key") || editingServer.apiKey || ""
       } else {
         savedApiKey = editingServer.apiKey || ""
       }
@@ -515,6 +519,72 @@ function AddServerDialog({
         }
       }
       reader.readAsDataURL(file)
+    }
+  }
+
+  const handleTestApiKey = async () => {
+    if (!apiKey.trim()) {
+      setApiKeyTestResult({ success: false, message: "Please enter an API key first" })
+      return
+    }
+
+    setTestingApiKey(true)
+    setApiKeyTestResult(null)
+
+    try {
+      const normalizedName = name.toLowerCase().trim()
+      const serverId = editingServer?.id?.toLowerCase() || normalizedName
+      
+      // Only test API key for Maps/Google servers
+      if (!normalizedName.includes("google") && !normalizedName.includes("maps") && 
+          serverId !== "maps" && serverId !== "google-maps-grounding") {
+        setApiKeyTestResult({ 
+          success: false, 
+          message: "API key testing is only available for Google Maps servers" 
+        })
+        setTestingApiKey(false)
+        return
+      }
+
+      // Test the Maps API key
+      const response = await fetch("/api/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "health",
+          config: {
+            id: "maps",
+            name: "Google Maps Grounding",
+            transport: "http",
+            url: "https://mapstools.googleapis.com/mcp",
+            headers: {
+              "X-Goog-Api-Key": apiKey.trim(),
+            },
+          },
+        }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.status?.healthy) {
+        setApiKeyTestResult({ 
+          success: true, 
+          message: data.status.message || "API key is valid and working!" 
+        })
+      } else {
+        const errorMsg = data.status?.message || data.error || "API key test failed"
+        setApiKeyTestResult({ 
+          success: false, 
+          message: errorMsg 
+        })
+      }
+    } catch (error) {
+      setApiKeyTestResult({ 
+        success: false, 
+        message: error instanceof Error ? error.message : "Failed to test API key" 
+      })
+    } finally {
+      setTestingApiKey(false)
     }
   }
 
@@ -667,6 +737,11 @@ function AddServerDialog({
     if ((serverId === "exa" || serverId.includes("exa")) && apiKey) {
       localStorage.setItem("exa_api_key", apiKey.trim())
       console.log("Exa API key saved to localStorage")
+    }
+
+    if ((serverId.includes("maps") || serverId.includes("google")) && apiKey) {
+      localStorage.setItem("google_maps_api_key", apiKey.trim())
+      console.log("Google Maps API key saved to localStorage")
     }
     
     if (editingServer) {
@@ -881,13 +956,50 @@ function AddServerDialog({
                 return null
               })()}
             </div>
-            <Input
-              id="apiKey"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Enter your API key"
-            />
+            <div className="flex gap-2">
+              <Input
+                id="apiKey"
+                type="password"
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value)
+                  setApiKeyTestResult(null) // Clear test result when typing
+                }}
+                placeholder="Enter your API key"
+                className="flex-1"
+              />
+              {((name.toLowerCase().includes("google") || name.toLowerCase().includes("maps")) ||
+                editingServer?.id === "maps" || editingServer?.id === "google-maps-grounding") && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleTestApiKey}
+                  disabled={testingApiKey || !apiKey.trim()}
+                  className="shrink-0"
+                >
+                  {testingApiKey ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    "Test"
+                  )}
+                </Button>
+              )}
+            </div>
+            {apiKeyTestResult && (
+              <div className={`flex items-center gap-2 text-sm ${
+                apiKeyTestResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+              }`}>
+                {apiKeyTestResult.success ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <XCircle className="h-4 w-4" />
+                )}
+                <span>{apiKeyTestResult.message}</span>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
               API key for authenticating with the server
               {(() => {
@@ -911,6 +1023,10 @@ function AddServerDialog({
                 }
                 return null
               })()}
+              {((name.toLowerCase().includes("google") || name.toLowerCase().includes("maps")) ||
+                editingServer?.id === "maps" || editingServer?.id === "google-maps-grounding") && (
+                <>. Click "Test" to verify your key works.</>
+              )}
             </p>
           </div>
           <div className="space-y-2">

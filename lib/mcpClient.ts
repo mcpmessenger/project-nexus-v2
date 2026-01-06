@@ -78,6 +78,21 @@ const schemaCache = new Map<string, SchemaCacheEntry>()
 
 const GOOGLE_GROUNDING_URL = "https://mapstools.googleapis.com/mcp"
 
+function getCaseInsensitiveHeader(
+  headers: Record<string, string> | undefined,
+  headerName: string
+): string | undefined {
+  if (!headers) return undefined
+  const lowerName = headerName.toLowerCase()
+  return Object.keys(headers).reduce<string | undefined>((value, key) => {
+    if (value) return value
+    if (key.toLowerCase() === lowerName) {
+      return headers[key]
+    }
+    return undefined
+  }, undefined)
+}
+
 export function buildMcpConfig(input: McpRouteConfigInput): McpServerConfig {
   return {
     id: input.id ?? `mcp-${crypto.randomUUID()}`,
@@ -128,12 +143,27 @@ export function cacheToolSchema(serverId: string, schema: ToolSchema[]) {
 }
 
 export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerConfig {
-  const apiKey = process.env.GOOGLE_MAPS_GROUNDING_API_KEY
+  const headerKey = getCaseInsensitiveHeader(config.headers, "X-Goog-Api-Key")
+  const envKey = process.env.GOOGLE_MAPS_GROUNDING_API_KEY
+  const apiKey = headerKey || envKey
+
   if (!apiKey) {
-    throw new Error("Missing GOOGLE_MAPS_GROUNDING_API_KEY environment variable")
+    throw new Error("Missing Google Maps API key. Provide X-Goog-Api-Key in the request or set GOOGLE_MAPS_GROUNDING_API_KEY.")
   }
 
-  console.log(`[MCP Client] Using Google Maps API key (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 10)}...)`)
+  // Validate API key format (Google API keys start with "AIza" and are typically 39 characters)
+  const trimmedKey = apiKey.trim()
+  if (!trimmedKey.startsWith("AIza")) {
+    throw new Error(`Invalid Google Maps API key format. Key should start with "AIza". It looks like you may have pasted a curl command instead of just the API key. Please go to Settings and enter only the API key (e.g., AIzaSy...).`)
+  }
+  
+  if (trimmedKey.length < 30 || trimmedKey.length > 200) {
+    console.warn(`[MCP Client] Warning: Google Maps API key length (${trimmedKey.length}) seems unusual. Expected ~39 characters.`)
+  }
+
+  const source = headerKey ? "request config" : "GOOGLE_MAPS_GROUNDING_API_KEY"
+  const preview = trimmedKey.length > 10 ? `${trimmedKey.substring(0, 6)}...` : trimmedKey
+  console.log(`[MCP Client] Using Google Maps API key from ${source} (length: ${trimmedKey.length}, preview: ${preview})`)
 
   return {
     ...config,
@@ -141,7 +171,7 @@ export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerCon
     url: GOOGLE_GROUNDING_URL,
     headers: {
       ...config.headers,
-      "X-Goog-Api-Key": apiKey,
+      "X-Goog-Api-Key": trimmedKey,
     },
   }
 }
@@ -395,13 +425,75 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
     body: JSON.stringify(payload),
   })
 
+  // Check if response is actually JSON (Google Maps returns JSON even when Accept: text/event-stream)
+  const contentType = response.headers.get("content-type") || ""
+  const isJsonResponse = contentType.includes("application/json")
+  
   if (!response.ok) {
     const bodyText = await response.text()
+    
+    // Try to parse as JSON to extract helpful error messages (especially for Google Maps)
+    if (isJsonResponse) {
+      try {
+        const errorJson = JSON.parse(bodyText)
+        
+        // Check for Google Maps error format (result with isError: true)
+        if (errorJson.result && typeof errorJson.result === 'object' && errorJson.result.isError === true) {
+          const errorText = errorJson.result.content?.find((c: any) => c.type === "text")?.text || 
+                           JSON.stringify(errorJson.result)
+          
+          // Provide helpful guidance for common Maps API errors
+          if (errorText.includes("Maps Grounding Lite API has not been used") || 
+              errorText.includes("disabled via MCP policy")) {
+            throw new Error(
+              `Maps Grounding Lite API is not enabled for your Google Cloud project.\n\n` +
+              `To fix this:\n` +
+              `1. Go to https://console.cloud.google.com/apis/library/mapstools.googleapis.com\n` +
+              `2. Select your project (ID: ${errorText.match(/project (\d+)/)?.[1] || 'your project'})\n` +
+              `3. Click "Enable" to enable the Maps Grounding Lite API\n` +
+              `4. Wait a few minutes for the change to propagate, then try again\n\n` +
+              `Original error: ${errorText}`
+            )
+          }
+          
+          throw new Error(errorText)
+        }
+        
+        // Check for standard JSON-RPC error format
+        if (errorJson.error) {
+          throw new Error(errorJson.error.message || JSON.stringify(errorJson.error))
+        }
+      } catch (parseError) {
+        // If JSON parsing fails, fall through to generic error
+      }
+    }
+    
+    // Generic error for non-JSON or unparseable responses
     throw new Error(
-      `MCP HTTP transport responded with ${response.status}. Body: ${bodyText}`
+      `MCP HTTP transport responded with ${response.status}. Body: ${bodyText.substring(0, 500)}`
     )
   }
 
+  if (isJsonResponse) {
+    // Parse as plain JSON instead of SSE
+    const jsonData = await response.json()
+    
+    // Check for standard JSON-RPC error format
+    if (jsonData.error) {
+      throw new Error(jsonData.error.message || JSON.stringify(jsonData.error))
+    }
+    
+    // Check for Google Maps error format (result with isError: true)
+    if (jsonData.result && typeof jsonData.result === 'object' && jsonData.result.isError === true) {
+      const errorText = jsonData.result.content?.find((c: any) => c.type === "text")?.text || 
+                       JSON.stringify(jsonData.result)
+      throw new Error(errorText)
+    }
+    
+    return jsonData.result ?? jsonData
+  }
+
+  // Otherwise, try to parse as SSE
   const parsed = await readSseJson(response.body)
   if (parsed.error) {
     throw new Error(parsed.error.message)

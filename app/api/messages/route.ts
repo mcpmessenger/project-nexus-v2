@@ -22,6 +22,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const { content, imageUrl, provider = "openai", apiKey } = body
+    const mapsApiKey = body.mapsApiKey?.trim() || null
 
     // Get API key based on provider
     let apiKeyToUse: string | undefined
@@ -96,9 +97,17 @@ export async function POST(request: Request) {
     }
 
     // Load tools first (before building system message)
+    const invocationOptions = mapsApiKey
+      ? { googleMapsApiKey: mapsApiKey }
+      : undefined
+    if (mapsApiKey) {
+      console.log(`[API Messages] Maps API key provided (length: ${mapsApiKey.length}, preview: ${mapsApiKey.substring(0, 10)}...)`)
+    } else {
+      console.log(`[API Messages] No Maps API key provided - will use env var if available`)
+    }
     let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = []
     try {
-      tools = await getAvailableToolsAsOpenAIFunctions()
+      tools = await getAvailableToolsAsOpenAIFunctions(invocationOptions)
       console.log(`[API Messages] Loaded ${tools.length} tools for function calling`)
     } catch (error) {
       console.error("[API] Error loading tools:", error)
@@ -400,7 +409,7 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
           try {
             const args = JSON.parse(toolCall.function.arguments)
             console.log(`[API] Calling tool: ${toolCall.function.name} with args:`, JSON.stringify(args).substring(0, 200))
-            const result = await invokeToolByName(toolCall.function.name, args)
+            const result = await invokeToolByName(toolCall.function.name, args, invocationOptions)
             console.log(`[API] Tool ${toolCall.function.name} returned:`, JSON.stringify(result).substring(0, 500))
             allToolResults.push({ rawResult: result, name: toolCall.function.name })
             
@@ -478,7 +487,7 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
             // Wait a moment for page to fully load after navigation
             await new Promise(resolve => setTimeout(resolve, 1000))
             
-            const screenshotResult = await invokeToolByName('playwright_browser_take_screenshot', {})
+            const screenshotResult = await invokeToolByName('playwright_browser_take_screenshot', {}, invocationOptions)
             console.log(`[API Messages] 📸 Screenshot result type: ${typeof screenshotResult}, keys: ${screenshotResult && typeof screenshotResult === 'object' ? Object.keys(screenshotResult).join(', ') : 'N/A'}`)
             console.log(`[API Messages] 📸 Screenshot result preview: ${JSON.stringify(screenshotResult).substring(0, 500)}`)
             
@@ -539,7 +548,7 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
             try {
               const args = JSON.parse(toolCall.function.arguments)
               console.log(`[API] Additional tool call: ${toolCall.function.name} with args:`, JSON.stringify(args).substring(0, 200))
-              const result = await invokeToolByName(toolCall.function.name, args)
+              const result = await invokeToolByName(toolCall.function.name, args, invocationOptions)
               console.log(`[API] Additional tool ${toolCall.function.name} returned:`, JSON.stringify(result).substring(0, 500))
               
               // Add to allToolResults for screenshot extraction
