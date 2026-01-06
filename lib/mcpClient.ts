@@ -167,20 +167,23 @@ export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerCon
 
   const userProjectHeader = getCaseInsensitiveHeader(config.headers, "X-Goog-User-Project")
   const userProjectEnv = process.env.GOOGLE_MAPS_GROUNDING_USER_PROJECT
-  const userProject = userProjectHeader?.trim() || userProjectEnv?.trim()
+  // Default fallback to project-nexus-483122 (the project that worked in curl test)
+  const defaultProjectId = "project-nexus-483122"
+  const userProject = userProjectHeader?.trim() || userProjectEnv?.trim() || defaultProjectId
 
   const headers: Record<string, string> = {
     ...config.headers,
     "X-Goog-Api-Key": trimmedKey,
+    "X-Goog-User-Project": userProject, // Always set the project ID (required for billing attribution)
   }
 
-  if (userProject) {
-    headers["X-Goog-User-Project"] = userProject
-  } else {
+  if (userProject === defaultProjectId && !userProjectHeader && !userProjectEnv) {
     console.log(
-      `[MCP Client] No Google billing project specified for Maps Grounding lookup. ` +
-        `Provide it via X-Goog-User-Project header or GOOGLE_MAPS_GROUNDING_USER_PROJECT.`
+      `[MCP Client] Using default Google billing project: ${defaultProjectId}. ` +
+        `To override, set X-Goog-User-Project header or GOOGLE_MAPS_GROUNDING_USER_PROJECT env var.`
     )
+  } else {
+    console.log(`[MCP Client] Using Google billing project: ${userProject}`)
   }
 
   return {
