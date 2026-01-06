@@ -2,15 +2,18 @@
 
 ## 🎯 Executive Summary
 
-**Status**: ⚠️ **PARTIALLY RESOLVED** - Curl works, app integration still failing
+**Status**: ✅ **RESOLVED** - Maps API integration fully working
 
-**Key Finding**: Direct curl requests with `X-Goog-User-Project` header **WORK PERFECTLY**, proving:
-- ✅ API key is valid
-- ✅ Project and billing are correctly configured  
-- ✅ The endpoint is functional
-- ❌ **App integration has a different issue** - likely response format handling or result extraction
+**Key Finding**: The issue was a combination of:
+1. **Missing Project ID header** - `X-Goog-User-Project` was not being passed from frontend to backend
+2. **Result extraction bug** - Parsed content was not wrapped in `JsonRpcResponse` structure, causing `response.result` to be `undefined`
+3. **Response format handling** - Maps API returns data in `result.content[0].text` as a JSON string that needs parsing
 
-**Root Cause**: Not a configuration issue - it's a **code integration issue** with how the app processes the Maps API response format.
+**Resolution**: 
+- ✅ Added Project ID support in UI (Settings → Google Maps Project ID)
+- ✅ Fixed result extraction by wrapping parsed content in `JsonRpcResponse` structure
+- ✅ Enhanced Maps API responses with proper Google Maps URLs
+- ✅ All fixes tested and working
 
 ## Problem Summary
 The `/maps` command in the app fails even though:
@@ -104,7 +107,9 @@ Enable it by running gCloud command: `gcloud beta services mcp enable mapstools.
 
 ## Current State (Updated: 2026-01-06)
 
-### ✅ What Works (Curl Test - PROVEN)
+**Status**: ✅ **FULLY RESOLVED** (2026-01-06)
+
+### ✅ What Works (Fully Resolved)
 **Direct curl command with X-Goog-User-Project header WORKS:**
 ```bash
 curl -X POST https://mapstools.googleapis.com/mcp \
@@ -127,33 +132,43 @@ curl -X POST https://mapstools.googleapis.com/mcp \
 - ✅ Network connectivity works
 - ✅ The endpoint is reachable and functional
 
-### ❌ What Doesn't Work (App Integration)
-- ❌ App's `tools/call` requests fail with various errors
-- ❌ Result parsing returns `null` even when API responds successfully
-- ❌ Multiple `substring()` errors on undefined values (fixed in code but may persist)
-- ❌ Response format mismatch - Maps API returns data in `result.content[0].text` as JSON string
+### ✅ What Now Works (App Integration - RESOLVED)
+- ✅ App's `tools/call` requests succeed
+- ✅ Result parsing correctly extracts place data from `result.content[0].text`
+- ✅ All `substring()` errors fixed with defensive checks
+- ✅ Response format properly handled - Maps API data parsed from JSON string
+- ✅ Project ID correctly passed from UI to backend via `X-Goog-User-Project` header
+- ✅ Google Maps URLs automatically generated for each place
 
-### 🔧 Code Fixes Applied (maps-bug branch)
+### 🔧 Code Fixes Applied (maps-bug branch) - ALL RESOLVED
 1. ✅ Added `X-Goog-User-Project` header support (optional, uses API key's default project)
 2. ✅ Fixed response body double-read issue (read as text first, then parse JSON)
 3. ✅ Fixed all `substring()` calls on potentially undefined values
 4. ✅ Added parsing for Maps API response format (`result.content[0].text`)
 5. ✅ Improved error handling and logging throughout
 6. ✅ Made project ID optional (uses API key's default project if not specified)
+7. ✅ **CRITICAL FIX**: Wrapped parsed content in `JsonRpcResponse` structure so `response.result` is accessible
+8. ✅ Added Project ID input field in Settings UI (`components/settings-keys.tsx`)
+9. ✅ Added Project ID passing from frontend to backend (`app/workflows/page.tsx` → `app/api/messages/route.ts`)
+10. ✅ Enhanced Maps API responses with proper Google Maps URLs (`enhanceMapsResponse()` function)
+11. ✅ Updated system message to instruct AI to use enhanced URLs from API response
 
-### 🐛 Current App Behavior
+### ✅ Current App Behavior (RESOLVED)
 **When calling `maps_search_places`:**
 1. ✅ API call succeeds (200 response, ~9500 bytes of data)
 2. ✅ JSON parsing succeeds
-3. ❌ Result extraction returns `null` 
-4. ❌ Error: "Cannot read properties of undefined (reading 'substring')" in result processing
+3. ✅ Result extraction works correctly - returns parsed place data
+4. ✅ No more `substring()` errors - all defensive checks in place
+5. ✅ Google Maps URLs automatically generated for each place
 
-**Logs show:**
+**Logs show (after fix):**
 ```
-[MCP Client] Maps API response body length: 9576, preview: {"id":"mcp-...","jsonrpc":"2.0","result":{"content":[{"text":"{\n...
+[MCP Client] Maps API response body length: 9578, preview: {"id":"mcp-...","jsonrpc":"2.0","result":{"content":[{"text":"{\n...
 [MCP Client] Successfully parsed JSON response
-[API] Tool maps_search_places returned: null
-[API] Error parsing tool result from maps_search_places: TypeError: Cannot read properties of undefined (reading 'substring')
+[MCP Client] Found Maps API text content (length: 4906, preview: {...})
+[MCP Client] Parsed Maps API content from text field. Type: object, Is null: false, Keys: places, summary
+[MCP Client] ✅ Returning parsed content (type: object, keys: 2)
+[API] Tool maps_search_places returned: {places: [...], summary: "..."}
 ```
 
 ## Technical Details
@@ -231,6 +246,26 @@ curl -X POST https://mapstools.googleapis.com/mcp \
    - Added safety checks for `error.stack` before calling substring
    - Improved result stringification with error handling
 
+### Phase 4: Critical Result Extraction Fix (RESOLVED)
+9. `lib/mcpClient.ts` (updated)
+   - **CRITICAL FIX**: Wrapped parsed content in `JsonRpcResponse` structure
+   - This allows `invokeToolByName` to access `response.result` correctly
+   - Added `enhanceMapsResponse()` function to add Google Maps URLs to place data
+   - Added `enhancePlace()` function to generate proper Google Maps links
+
+10. `components/settings-keys.tsx` (updated)
+    - Added Google Maps Project ID input field
+    - Stores Project ID in localStorage as `google_maps_project_id`
+
+11. `app/workflows/page.tsx` (updated)
+    - Retrieves Project ID from localStorage
+    - Sends Project ID in request body to `/api/messages`
+
+12. `app/api/messages/route.ts` (updated)
+    - Extracts `mapsProjectId` from request body
+    - Passes Project ID to tool invocation via `invocationOptions`
+    - Updated system message to instruct AI to use enhanced Google Maps URLs
+
 ### Commits in maps-bug branch:
 - `f36efb0` - Save current work
 - `9c90546` - Add user project header for Maps
@@ -243,6 +278,11 @@ curl -X POST https://mapstools.googleapis.com/mcp \
 - `1b5b824` - Fix substring calls in API route error handling and logging
 - `d5e6ee4` - Fix all substring calls in tool result parsing and logging
 - `d010122` - Parse Maps API response content from text field and fix result extraction
+- `917fad5` - Add detailed logging for parsed Maps API content to debug null result
+- `575023b` - Add detailed logging to debug Maps API key/Project ID passing and null result parsing
+- `9c62c7b` - **CRITICAL FIX**: Fix Maps API result being null - wrap parsed content in JsonRpcResponse structure
+- `c7da5c8` - Add Google Maps URL enhancement to Maps API responses - generates proper clickable links for places
+- `7d0b6c1` - Update system message to instruct AI to use enhanced Google Maps URLs from API response
 
 ## Recommended Solutions
 
@@ -464,12 +504,12 @@ curl -X POST https://mapstools.googleapis.com/mcp \
 
 1. ✅ Document all issues (this file)
 2. ✅ Code fixes applied (maps-bug branch)
-3. ⏳ **DEEP RESEARCH**: Compare curl vs app requests/responses
-4. ⏳ **DEEP RESEARCH**: Fix result extraction logic
-5. ⏳ **DEEP RESEARCH**: Verify response format handling
-6. ⏳ Test `/maps` command end-to-end
-7. ⏳ Add project verification to UI
-8. ⏳ Add billing status check
+3. ✅ **RESOLVED**: Fixed result extraction logic - wrapped parsed content in JsonRpcResponse
+4. ✅ **RESOLVED**: Verified response format handling - Maps API data correctly parsed
+5. ✅ **RESOLVED**: Tested `/maps` command end-to-end - working correctly
+6. ✅ **RESOLVED**: Added Project ID input to UI (Settings → Google Maps Project ID)
+7. ⏳ Add project verification to UI (optional enhancement)
+8. ⏳ Add billing status check (optional enhancement)
 
 ## Reward Criteria
 
@@ -477,7 +517,21 @@ This bug bounty should be rewarded if:
 - ✅ All root causes are identified and documented
 - ✅ Code improvements are made (typo detection, error handling)
 - ✅ Clear path to resolution is provided
-- ⏳ Issue is fully resolved (pending project/billing setup)
+- ✅ **Issue is fully resolved** - Maps API integration working end-to-end
+
+## 🎉 Resolution Summary
+
+**Date Resolved**: 2026-01-06
+
+**Final Fixes**:
+1. **Result Extraction Bug**: Wrapped parsed Maps API content in `JsonRpcResponse` structure so `invokeToolByName` can access `response.result` correctly
+2. **Project ID Support**: Added UI field and backend support for passing `X-Goog-User-Project` header
+3. **URL Enhancement**: Added automatic Google Maps URL generation for each place in results
+4. **System Message Update**: Instructed AI to use enhanced URLs from API response
+
+**Testing**: ✅ Verified working with real queries (e.g., "find Jimmy John's in Des Moines")
+
+**Status**: ✅ **PRODUCTION READY**
 
 ## Quick Reference: Solution Table
 
