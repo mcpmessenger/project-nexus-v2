@@ -546,7 +546,11 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
         try {
           // Parse the JSON string in the text field
           const parsedContent = JSON.parse(textContent.text)
-          console.log(`[MCP Client] Parsed Maps API content from text field`)
+          console.log(`[MCP Client] Parsed Maps API content from text field. Type: ${typeof parsedContent}, Is null: ${parsedContent === null}, Keys: ${typeof parsedContent === 'object' && parsedContent !== null ? Object.keys(parsedContent).join(', ') : 'N/A'}`)
+          if (parsedContent === null || parsedContent === undefined) {
+            console.warn(`[MCP Client] ⚠️ Parsed content is null/undefined, returning original result instead`)
+            return jsonData?.result ?? jsonData
+          }
           return parsedContent
         } catch (parseError) {
           // If parsing fails, return the text as-is
