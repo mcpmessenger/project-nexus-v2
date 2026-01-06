@@ -644,7 +644,9 @@ export async function invokeToolByName(
       const keyBefore = mcpConfig.headers['X-Goog-Api-Key'] || mcpConfig.headers['x-goog-api-key']
       mcpConfig = ensureManagedGoogleConfig(mcpConfig)
       const keyAfter = mcpConfig.headers['X-Goog-Api-Key'] || mcpConfig.headers['x-goog-api-key']
-      console.log(`[Tools Helper] Maps config applied. Key before: ${keyBefore ? `${keyBefore.substring(0, 10)}... (${keyBefore.length} chars)` : 'none'}, Key after: ${keyAfter ? `${keyAfter.substring(0, 10)}... (${keyAfter.length} chars)` : 'none'}`)
+      const keyBeforeStr = (typeof keyBefore === 'string' && keyBefore.length > 0) ? `${keyBefore.substring(0, 10)}... (${keyBefore.length} chars)` : 'none'
+      const keyAfterStr = (typeof keyAfter === 'string' && keyAfter.length > 0) ? `${keyAfter.substring(0, 10)}... (${keyAfter.length} chars)` : 'none'
+      console.log(`[Tools Helper] Maps config applied. Key before: ${keyBeforeStr}, Key after: ${keyAfterStr}`)
     } catch (error) {
       // If API key is missing, log warning but don't fail - let it fail when calling the API
       console.warn(`[Tools Helper] Warning: ${server.id} API key not configured. Tools may not work.`, error instanceof Error ? error.message : error)

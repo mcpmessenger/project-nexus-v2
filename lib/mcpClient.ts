@@ -463,8 +463,8 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
                            JSON.stringify(errorJson.result)
           
           // Provide helpful guidance for common Maps API errors
-          if (errorText.includes("Maps Grounding Lite API has not been used") || 
-              errorText.includes("disabled via MCP policy")) {
+          if (typeof errorText === 'string' && (errorText.includes("Maps Grounding Lite API has not been used") || 
+              errorText.includes("disabled via MCP policy"))) {
             throw new Error(
               `Maps Grounding Lite API is not enabled for your Google Cloud project.\n\n` +
               `To fix this:\n` +
@@ -476,7 +476,7 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
             )
           }
           
-          throw new Error(errorText)
+          throw new Error(typeof errorText === 'string' ? errorText : String(errorText))
         }
         
         // Check for standard JSON-RPC error format
@@ -496,21 +496,28 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
 
   if (isJsonResponse) {
     // Parse as plain JSON instead of SSE
-    const jsonData = await response.json()
+    let jsonData: any
+    try {
+      jsonData = await response.json()
+    } catch (parseError) {
+      const bodyText = await response.text().catch(() => 'Unable to read response body')
+      throw new Error(`Failed to parse JSON response from Maps API. Status: ${response.status}. Body: ${typeof bodyText === 'string' ? bodyText.substring(0, 500) : String(bodyText)}`)
+    }
     
     // Check for standard JSON-RPC error format
-    if (jsonData.error) {
-      throw new Error(jsonData.error.message || JSON.stringify(jsonData.error))
+    if (jsonData?.error) {
+      const errorMsg = jsonData.error.message || JSON.stringify(jsonData.error)
+      throw new Error(typeof errorMsg === 'string' ? errorMsg : String(errorMsg))
     }
     
     // Check for Google Maps error format (result with isError: true)
-    if (jsonData.result && typeof jsonData.result === 'object' && jsonData.result.isError === true) {
+    if (jsonData?.result && typeof jsonData.result === 'object' && jsonData.result.isError === true) {
       const errorText = jsonData.result.content?.find((c: any) => c.type === "text")?.text || 
                        JSON.stringify(jsonData.result)
-      throw new Error(errorText)
+      throw new Error(typeof errorText === 'string' ? errorText : String(errorText))
     }
     
-    return jsonData.result ?? jsonData
+    return jsonData?.result ?? jsonData
   }
 
   // Otherwise, try to parse as SSE
