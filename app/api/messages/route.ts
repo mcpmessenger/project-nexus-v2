@@ -24,6 +24,11 @@ export async function POST(request: Request) {
     const { content, imageUrl, provider = "openai", apiKey } = body
     const mapsApiKey = body.mapsApiKey?.trim() || null
     const mapsProjectId = body.mapsProjectId?.trim() || null
+    
+    // Debug logging for Maps API key and Project ID
+    console.log(`[API Messages] Request body keys: ${Object.keys(body).join(', ')}`)
+    console.log(`[API Messages] mapsApiKey in body: ${body.mapsApiKey ? `PRESENT (length: ${body.mapsApiKey.length})` : 'MISSING'}`)
+    console.log(`[API Messages] mapsProjectId in body: ${body.mapsProjectId ? `PRESENT (${body.mapsProjectId})` : 'MISSING'}`)
 
     // Get API key based on provider
     let apiKeyToUse: string | undefined

@@ -543,20 +543,25 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
     if (jsonData?.result && typeof jsonData.result === 'object' && Array.isArray(jsonData.result.content)) {
       const textContent = jsonData.result.content.find((c: any) => c.type === "text")
       if (textContent && typeof textContent.text === 'string') {
+        console.log(`[MCP Client] Found Maps API text content (length: ${textContent.text.length}, preview: ${textContent.text.substring(0, 200)}...)`)
         try {
           // Parse the JSON string in the text field
           const parsedContent = JSON.parse(textContent.text)
-          console.log(`[MCP Client] Parsed Maps API content from text field. Type: ${typeof parsedContent}, Is null: ${parsedContent === null}, Keys: ${typeof parsedContent === 'object' && parsedContent !== null ? Object.keys(parsedContent).join(', ') : 'N/A'}`)
+          console.log(`[MCP Client] Parsed Maps API content from text field. Type: ${typeof parsedContent}, Is null: ${parsedContent === null}, Is array: ${Array.isArray(parsedContent)}, Keys: ${typeof parsedContent === 'object' && parsedContent !== null ? Object.keys(parsedContent).join(', ') : 'N/A'}`)
           if (parsedContent === null || parsedContent === undefined) {
             console.warn(`[MCP Client] ⚠️ Parsed content is null/undefined, returning original result instead`)
+            console.log(`[MCP Client] Original result structure:`, JSON.stringify(jsonData?.result).substring(0, 500))
             return jsonData?.result ?? jsonData
           }
+          console.log(`[MCP Client] ✅ Returning parsed content (type: ${typeof parsedContent}, keys: ${typeof parsedContent === 'object' && parsedContent !== null ? Object.keys(parsedContent).length : 'N/A'})`)
           return parsedContent
         } catch (parseError) {
           // If parsing fails, return the text as-is
-          console.log(`[MCP Client] Maps API text content is not JSON, returning as string`)
+          console.log(`[MCP Client] Maps API text content is not JSON, returning as string. Parse error: ${parseError instanceof Error ? parseError.message : parseError}`)
           return textContent.text
         }
+      } else {
+        console.log(`[MCP Client] No text content found in Maps API response. Content array length: ${jsonData.result.content?.length || 0}`)
       }
     }
     
