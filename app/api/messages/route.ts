@@ -408,9 +408,16 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
         toolCalls.map(async (toolCall) => {
           try {
             const args = JSON.parse(toolCall.function.arguments)
-            console.log(`[API] Calling tool: ${toolCall.function.name} with args:`, JSON.stringify(args).substring(0, 200))
+            const argsStr = JSON.stringify(args) || '{}'
+            console.log(`[API] Calling tool: ${toolCall.function.name} with args:`, argsStr.length > 200 ? argsStr.substring(0, 200) + '...' : argsStr)
             const result = await invokeToolByName(toolCall.function.name, args, invocationOptions)
-            console.log(`[API] Tool ${toolCall.function.name} returned:`, JSON.stringify(result).substring(0, 500))
+            let resultStr: string
+            try {
+              resultStr = JSON.stringify(result) || 'null'
+            } catch (stringifyError) {
+              resultStr = `[Unable to stringify result: ${stringifyError instanceof Error ? stringifyError.message : String(stringifyError)}]`
+            }
+            console.log(`[API] Tool ${toolCall.function.name} returned:`, resultStr.length > 500 ? resultStr.substring(0, 500) + '...' : resultStr)
             allToolResults.push({ rawResult: result, name: toolCall.function.name })
             
             // If result is empty or null, add a note to help LLM understand
@@ -428,7 +435,8 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
             const errorMessage = error instanceof Error ? error.message : "Unknown error"
             console.error(`[API] Tool call failed: ${toolCall.function.name}`, errorMessage)
             if (error instanceof Error && error.stack) {
-              console.error(`[API] Tool call error stack:`, error.stack.substring(0, 300))
+              const stackPreview = typeof error.stack === 'string' && error.stack.length > 0 ? error.stack.substring(0, 300) : String(error.stack || 'no stack trace')
+              console.error(`[API] Tool call error stack:`, stackPreview)
             }
             return {
               tool_call_id: toolCall.id,
