@@ -167,23 +167,25 @@ export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerCon
 
   const userProjectHeader = getCaseInsensitiveHeader(config.headers, "X-Goog-User-Project")
   const userProjectEnv = process.env.GOOGLE_MAPS_GROUNDING_USER_PROJECT
-  // Default fallback to project-nexus-483122 (the project that worked in curl test)
-  const defaultProjectId = "project-nexus-483122"
-  const userProject = userProjectHeader?.trim() || userProjectEnv?.trim() || defaultProjectId
+  const userProject = userProjectHeader?.trim() || userProjectEnv?.trim()
 
   const headers: Record<string, string> = {
     ...config.headers,
     "X-Goog-Api-Key": trimmedKey,
-    "X-Goog-User-Project": userProject, // Always set the project ID (required for billing attribution)
   }
 
-  if (userProject === defaultProjectId && !userProjectHeader && !userProjectEnv) {
-    console.log(
-      `[MCP Client] Using default Google billing project: ${defaultProjectId}. ` +
-        `To override, set X-Goog-User-Project header or GOOGLE_MAPS_GROUNDING_USER_PROJECT env var.`
-    )
-  } else {
+  // Only set X-Goog-User-Project if explicitly provided
+  // This header is for billing attribution to a different project than the API key's project
+  // If the API key already belongs to the correct project, we don't need this header
+  if (userProject) {
+    headers["X-Goog-User-Project"] = userProject
     console.log(`[MCP Client] Using Google billing project: ${userProject}`)
+  } else {
+    console.log(
+      `[MCP Client] No X-Goog-User-Project header specified. ` +
+        `Using API key's default project. If you need to bill to a different project, ` +
+        `set X-Goog-User-Project header or GOOGLE_MAPS_GROUNDING_USER_PROJECT env var.`
+    )
   }
 
   return {
