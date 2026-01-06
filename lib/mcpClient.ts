@@ -56,6 +56,100 @@ interface JsonRpcEnvelope {
   params: Record<string, unknown>
 }
 
+/**
+ * Enhances Maps API place data with proper Google Maps URLs
+ */
+function enhanceMapsResponse(data: any): any {
+  if (!data || typeof data !== 'object') {
+    return data
+  }
+  
+  // If data has a places array, enhance each place
+  if (Array.isArray(data.places)) {
+    return {
+      ...data,
+      places: data.places.map((place: any) => enhancePlace(place)),
+    }
+  }
+  
+  // If data itself is a place object, enhance it
+  if (data.place || data.id || data.location) {
+    return enhancePlace(data)
+  }
+  
+  // Recursively enhance nested objects
+  if (Array.isArray(data)) {
+    return data.map((item) => enhanceMapsResponse(item))
+  }
+  
+  const enhanced: any = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (value && typeof value === 'object') {
+      enhanced[key] = enhanceMapsResponse(value)
+    } else {
+      enhanced[key] = value
+    }
+  }
+  return enhanced
+}
+
+/**
+ * Enhances a single place object with a proper Google Maps URL
+ */
+function enhancePlace(place: any): any {
+  if (!place || typeof place !== 'object') {
+    return place
+  }
+  
+  let mapsUrl: string | undefined
+  
+  // Priority 1: Use place_id if available (most reliable)
+  if (place.place) {
+    const placeId = typeof place.place === 'string' 
+      ? place.place.replace(/^places\//, '') 
+      : String(place.place)
+    mapsUrl = `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`
+  } else if (place.id) {
+    // Use place ID directly
+    mapsUrl = `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(place.id)}`
+  }
+  
+  // Priority 2: Use coordinates + name if available
+  if (!mapsUrl && place.location && place.displayName) {
+    const lat = place.location.latitude
+    const lng = place.location.longitude
+    const name = encodeURIComponent(place.displayName)
+    mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}&query_place_id=${name}`
+  } else if (!mapsUrl && place.location) {
+    const lat = place.location.latitude
+    const lng = place.location.longitude
+    mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+  }
+  
+  // Priority 3: Use formatted address
+  if (!mapsUrl && place.formattedAddress) {
+    const address = encodeURIComponent(place.formattedAddress)
+    mapsUrl = `https://www.google.com/maps/search/?api=1&query=${address}`
+  }
+  
+  // Priority 4: Use address components if available
+  if (!mapsUrl && place.address) {
+    const address = encodeURIComponent(place.address)
+    mapsUrl = `https://www.google.com/maps/search/?api=1&query=${address}`
+  }
+  
+  // Add the mapsUrl to the place object if we created one
+  if (mapsUrl) {
+    return {
+      ...place,
+      googleMapsUrl: mapsUrl,
+      mapsUrl: mapsUrl, // Alias for convenience
+    }
+  }
+  
+  return place
+}
+
 interface JsonRpcResponse<T = unknown> {
   jsonrpc: "2.0"
   id?: string
@@ -558,12 +652,15 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
               result: jsonData?.result ?? jsonData,
             }
           }
-          console.log(`[MCP Client] ✅ Returning parsed content (type: ${typeof parsedContent}, keys: ${typeof parsedContent === 'object' && parsedContent !== null ? Object.keys(parsedContent).length : 'N/A'})`)
+          // Enhance place data with proper Google Maps URLs
+          const enhancedContent = enhanceMapsResponse(parsedContent)
+          
+          console.log(`[MCP Client] ✅ Returning parsed content (type: ${typeof enhancedContent}, keys: ${typeof enhancedContent === 'object' && enhancedContent !== null ? Object.keys(enhancedContent).length : 'N/A'})`)
           // Wrap in JsonRpcResponse structure so invokeToolByName can access response.result
           return {
             jsonrpc: "2.0",
             id: jsonData.id,
-            result: parsedContent,
+            result: enhancedContent,
           }
         } catch (parseError) {
           // If parsing fails, return the text as-is
