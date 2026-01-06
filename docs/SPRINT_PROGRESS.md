@@ -29,7 +29,7 @@
 - ✅ Server validation
 - ✅ Cache refresh on server changes
 - ✅ Google Maps adapter
-- ✅ Brave Search adapter
+- ✅ Exa Search adapter
 - ✅ Playwright adapter
 
 ### Phase 5: Async Jobs & Rate Limiting
@@ -117,6 +117,6 @@ supabase/
 - Rate limiting is implemented and integrated into tool invocations
 - Tool-level permissions table exists with filtering logic in cache.ts
 - Job queue structure exists with pg_net integration complete (createJob triggers async execution)
-- Google Maps, Brave Search, and Playwright adapters are fully implemented and working
+- Google Maps, Exa Search, and Playwright adapters are fully implemented and working
 - GitHub adapter exists as a stub (needs full MCP integration)
 - Server adapters can be extended for additional services

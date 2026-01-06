@@ -126,7 +126,7 @@ This roadmap provides a logical, incremental approach to building the Nexus Hub.
 
 ### Step 10: Server Adapters (Start with Simplest)
 - [ ] Implement `servers/maps.ts` (Google Maps - SSE endpoint)
-- [ ] Implement `servers/brave.ts` (Brave Search - REST API)
+- [ ] Implement the Exa Search HTTP adapter (REST API)
 - [ ] Test each adapter independently
 
 **Files to create**:

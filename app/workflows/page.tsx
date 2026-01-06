@@ -121,6 +121,9 @@ export default function WorkflowsPage() {
   const [chatProvider, setChatProvider] = React.useState<"openai" | "anthropic" | "google">("openai")
   const [servers, setServers] = React.useState<Server[]>([])
   const [allTools, setAllTools] = React.useState<Tool[]>([])
+  const [toolsRefreshTrigger, setToolsRefreshTrigger] = React.useState(0)
+  const lastToolsRefreshRef = React.useRef(toolsRefreshTrigger)
+  const allToolsLengthRef = React.useRef(0)
   const [showAutocomplete, setShowAutocomplete] = React.useState(false)
   const [autocompleteType, setAutocompleteType] = React.useState<"servers" | "tools">("servers")
   const [autocompleteQuery, setAutocompleteQuery] = React.useState("")
@@ -153,32 +156,75 @@ export default function WorkflowsPage() {
     }
   }, [historyIndex, commandHistory])
 
-  // Load servers on mount
+  // Fetch servers function
+  const fetchServers = React.useCallback(async () => {
+    try {
+      const response = await fetch("/api/servers")
+      const data = await response.json()
+      
+      // Load user servers from localStorage (same as monitoring page)
+      const storedUserServers = localStorage.getItem("user_servers")
+      const userServers = storedUserServers ? JSON.parse(storedUserServers) : []
+      
+      const allServers: Server[] = [
+        ...(data.system || []).filter((s: Server) => s.enabled),
+        ...(userServers || []).filter((s: Server) => s.enabled),
+      ]
+      setServers(allServers)
+    } catch (error) {
+      console.error("Error fetching servers:", error)
+    }
+  }, [])
+
+  // Load servers on mount and listen for updates
   React.useEffect(() => {
-    const fetchServers = async () => {
-      try {
-        const response = await fetch("/api/servers")
-        const data = await response.json()
-        const allServers: Server[] = [
-          ...(data.system || []).filter((s: Server) => s.enabled),
-          ...(data.user || []).filter((s: Server) => s.enabled),
-        ]
-        setServers(allServers)
-      } catch (error) {
-        console.error("Error fetching servers:", error)
+    fetchServers()
+    
+    // Listen for storage events to update when servers are added/removed in other tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "user_servers") {
+        fetchServers()
       }
     }
-    fetchServers()
-  }, [])
+    
+    // Also listen for custom event for same-tab updates
+    const handleCustomStorage = () => {
+      fetchServers()
+    }
+    
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("userServersUpdated", handleCustomStorage)
+    
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("userServersUpdated", handleCustomStorage)
+    }
+  }, [fetchServers])
+
+  const serverSignature = React.useMemo(() => {
+    if (servers.length === 0) return ""
+    return servers
+      .map((server) => `${server.id}:${server.enabled}`)
+      .sort()
+      .join("|")
+  }, [servers])
+
+  React.useEffect(() => {
+    if (!serverSignature) return
+    allToolsLengthRef.current = 0
+    setAllTools([])
+    setToolsRefreshTrigger((prev) => prev + 1)
+  }, [serverSignature])
 
   // Fetch all tools from all servers
   const fetchAllTools = React.useCallback(async () => {
-    if (allTools.length > 0 || servers.length === 0) return // Already loaded or no servers
-    
+    if (servers.length === 0) return
+    if (allToolsLengthRef.current > 0 && toolsRefreshTrigger === lastToolsRefreshRef.current) return
+
     setIsLoadingTools(true)
     try {
       const tools: Tool[] = []
-      
+
       // Fetch tools from each server
       // Note: This is a simplified implementation - in production, you'd want
       // to use proper server configs or an aggregated tools endpoint
@@ -228,12 +274,18 @@ export default function WorkflowsPage() {
       }
       
       setAllTools(tools)
+      allToolsLengthRef.current = tools.length
+      lastToolsRefreshRef.current = toolsRefreshTrigger
     } catch (error) {
       console.error("Error fetching tools:", error)
     } finally {
       setIsLoadingTools(false)
     }
-  }, [servers, allTools.length])
+  }, [servers, toolsRefreshTrigger])
+
+  React.useEffect(() => {
+    fetchAllTools()
+  }, [fetchAllTools, toolsRefreshTrigger])
 
   // Close autocomplete when clicking outside
   React.useEffect(() => {
@@ -758,9 +810,48 @@ export default function WorkflowsPage() {
     }
   }
 
+  // Helper function to generate a friendly slug from server name or ID
+  const getServerSlug = (server: Server): string => {
+    // For system servers, use the ID (already friendly: github, brave, etc.)
+    if (server.type === "system") {
+      return server.id
+    }
+    
+    // For user servers, generate a slug from the name
+    // Convert to lowercase, replace spaces/special chars with hyphens
+    let slug = server.name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-") // Replace non-alphanumeric with hyphens
+      .replace(/^-+|-+$/g, "") // Remove leading/trailing hyphens
+    
+    // If slug is empty or too short, use a shortened version of the ID
+    if (!slug || slug.length < 3) {
+      slug = server.id.replace(/^user-/, "").substring(0, 15)
+    }
+    
+    return slug.substring(0, 30) // Limit length
+  }
+  
+  // Store server slug to ID mapping for later use
+  const serverSlugMap = React.useMemo(() => {
+    const map = new Map<string, string>()
+    servers.forEach(server => {
+      const slug = getServerSlug(server)
+      map.set(slug, server.id)
+    })
+    return map
+  }, [servers])
+
   const insertServerCommand = (serverId: string) => {
     const textarea = textareaRef.current
     if (!textarea) return
+
+    // Find the server to get its name for slug generation
+    const server = servers.find(s => s.id === serverId)
+    if (!server) return
+
+    const serverSlug = getServerSlug(server)
 
     const cursorPos = textarea.selectionStart
     const textBeforeCursor = input.substring(0, cursorPos)
@@ -769,13 +860,13 @@ export default function WorkflowsPage() {
     if (lastSlashIndex >= 0) {
       const beforeSlash = input.substring(0, lastSlashIndex)
       const afterCursor = input.substring(cursorPos)
-      const newInput = `${beforeSlash}/${serverId} ${afterCursor}`
+      const newInput = `${beforeSlash}/${serverSlug} ${afterCursor}`
       setInput(newInput)
       setShowAutocomplete(false)
       
       // Set cursor position after the inserted command
       setTimeout(() => {
-        const newCursorPos = lastSlashIndex + serverId.length + 2 // +1 for /, +1 for space
+        const newCursorPos = lastSlashIndex + serverSlug.length + 2 // +1 for /, +1 for space
         textarea.focus()
         textarea.setSelectionRange(newCursorPos, newCursorPos)
       }, 0)

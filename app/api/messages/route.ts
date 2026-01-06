@@ -9,10 +9,10 @@ export async function GET() {
   return NextResponse.json({ 
     message: "Messages API is working",
     hasOpenAIKey: !!process.env.OPENAI_API_KEY,
-    hasBraveKey: !!process.env.BRAVE_API_KEY,
-    braveKeyLength: process.env.BRAVE_API_KEY?.length || 0,
-    braveKeyPreview: process.env.BRAVE_API_KEY ? `${process.env.BRAVE_API_KEY.substring(0, 10)}...` : 'not set',
-    allBraveEnvVars: Object.keys(process.env).filter(key => key.includes('BRAVE')),
+    hasExaKey: !!process.env.EXA_API_KEY,
+    exaKeyLength: process.env.EXA_API_KEY?.length || 0,
+    exaKeyPreview: process.env.EXA_API_KEY ? `${process.env.EXA_API_KEY.substring(0, 10)}...` : 'not set',
+    allExaEnvVars: Object.keys(process.env).filter(key => key.includes('EXA')),
     cwd: process.cwd(),
   })
 }
@@ -95,13 +95,38 @@ export async function POST(request: Request) {
       )
     }
 
+    // Load tools first (before building system message)
+    let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = []
+    try {
+      tools = await getAvailableToolsAsOpenAIFunctions()
+      console.log(`[API Messages] Loaded ${tools.length} tools for function calling`)
+    } catch (error) {
+      console.error("[API] Error loading tools:", error)
+      // Continue with empty tools array
+    }
+
     // Prepare messages for OpenAI
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
 
     // Add system message explaining MCP slash commands
+    // Build dynamic list of available server commands from loaded tools
+    const availableServerPrefixes = tools.length > 0 
+      ? [...new Set(tools.map(t => t.function.name.split('_')[0]))].filter(p => p !== 'playwright' || p !== 'github' || p !== 'exa' || p !== 'maps')
+      : []
+    
     messages.push({
       role: "system",
-      content: `You have access to MCP (Model Context Protocol) tools. When a user types a slash command like /playwright, /github, /brave, or /maps, they want you to USE that specific MCP server's tools - NOT write code examples.
+      content: `You have access to MCP (Model Context Protocol) tools. When a user types a slash command like /playwright, /github, /exa, /maps, or any custom server command (e.g., /langchain, /custom-server), they want you to USE that specific MCP server's tools - NOT write code examples.
+
+IMPORTANT: If a user types a slash command starting with "/" followed by any text, identify the server from the command and use tools prefixed with that server's name. For example:
+- "/github" → use tools starting with "github_"
+- "/exa" → use tools starting with "exa_"
+- "/playwright" → use tools starting with "playwright_"
+- "/maps" → use tools starting with "maps_"
+- "/langchain" → use tools starting with "langchain_" (DO NOT use GitHub, Exa, or other tools)
+- "/custom-server" → use tools starting with the corresponding server prefix
+
+Available server prefixes in this session: ${availableServerPrefixes.length > 0 ? availableServerPrefixes.join(', ') : 'system servers (github, exa, playwright, maps) and any user-configured servers'}
 
 CRITICAL: You MUST call the appropriate function/tool when users request actions. Do NOT write code examples or Python scripts. Instead, use the function calling mechanism to execute the tools directly.
 
@@ -152,7 +177,7 @@ Examples:
   2. Call playwright_browser_take_screenshot (NO arguments needed - this is MANDATORY for screenshots)
 🚨 CRITICAL FOR GITHUB - READ THIS FIRST (HIGHEST PRIORITY):
 - When a user types "/github" followed by ANY text, they want you to use GitHub MCP tools to interact with GitHub
-- DO NOT use Brave Search, DO NOT use Playwright, DO NOT provide web search results when users type "/github"
+- DO NOT use Exa Search, DO NOT use Playwright, DO NOT provide web search results when users type "/github"
 - DO NOT provide general knowledge or documentation links when users type "/github"
 - You MUST call the GitHub MCP tools to get real GitHub data
 - GitHub MCP server provides many tools. Tool names are prefixed with "github_" when available (e.g., github_list_repositories, github_get_repository, github_search_code, github_get_file_contents, github_list_issues, github_create_issue, etc.)
@@ -174,26 +199,38 @@ Examples:
 - NEVER respond with just "Tool execution completed" - always provide context about what the tool did and what it returned
 - If a GitHub tool call fails, check the error message and try alternative tool names or parameters. Do NOT fall back to web search or other tools.
 
-- User says "/brave X" (e.g., "/brave ai developments in late 2025") → IMMEDIATELY call brave_web_search with query="X" (e.g., query="ai developments in late 2025")
-- User says "/brave search for X" or "search for X using Brave" → Use Brave Search MCP tools (brave_web_search, brave_image_search, brave_news_search, or brave_summarizer)
 - User says "find coffee shops in Des Moines" → Call maps_search_places with appropriate parameters to get actual place data
-
-🚨 CRITICAL FOR BRAVE SEARCH - READ THIS FIRST (HIGHEST PRIORITY):
-- When a user types "/brave" followed by ANY text, they want you to SEARCH for that information using Brave Search tools
-- DO NOT use Playwright, DO NOT navigate to websites, DO NOT take screenshots when users type "/brave"
-- DO NOT provide general knowledge or information from your training data when users type "/brave"
-- You MUST call the Brave Search tools to get real, current search results
-- Brave Search is an MCP server with multiple tools: brave_web_search, brave_image_search, brave_news_search, and brave_summarizer
-- When users type "/brave" followed by a query, use brave_web_search with the query parameter containing the full search query
-- When users request image searches, use brave_image_search
-- When users request news searches, use brave_news_search
+🚨 CRITICAL FOR EXA SEARCH - READ THIS FIRST (HIGHEST PRIORITY):
+- When a user types "/exa" followed by ANY text, they want you to SEARCH for that information using Exa's MCP tools
+- DO NOT use Playwright, DO NOT navigate to websites, DO NOT take screenshots when users type "/exa"
+- DO NOT provide general knowledge or information from your training data when users type "/exa"
+- You MUST call Exa's tools to get real, live web results (examples: exa_web_search_exa, exa_deep_search_exa, exa_get_code_context_exa)
+- When users type "/exa" followed by a query, call exa_web_search_exa with the query parameter containing the full request
+- When users request code context or research summaries, call exa_get_code_context_exa or exa_deep_researcher_start as appropriate
 - Examples:
-  * User says "/brave ai developments in late 2025" → IMMEDIATELY call brave_web_search with query="ai developments in late 2025" (DO NOT use Playwright)
-  * User says "/brave TypeScript" → IMMEDIATELY call brave_web_search with query="TypeScript" (DO NOT use Playwright)
-  * User says "search for AI news" → Call brave_web_search with query="AI news"
-- DO NOT respond with general knowledge when users explicitly use "/brave" - you MUST call the search tool
-- DO NOT use playwright_browser_navigate or playwright_browser_take_screenshot when users type "/brave" - use brave_web_search instead
-- Brave Search returns web search results with titles, URLs, and snippets - present these to the user in a helpful format
+  * User says "/exa ai developments in late 2025" → IMMEDIATELY call exa_web_search_exa with query="ai developments in late 2025" (DO NOT use Playwright)
+  * User says "/exa TypeScript patterns" → IMMEDIATELY call exa_web_search_exa with query="TypeScript patterns"
+  * User says "search for AI news" → Call exa_deep_search_exa with query="AI news"
+- DO NOT respond with general knowledge when users explicitly use "/exa" - you MUST call the Exa search tool set
+- Exa Search returns web search results with titles, URLs, and curated summaries - present these to the user in a helpful format
+
+🚨 CRITICAL FOR LANGCHAIN AGENT - READ THIS FIRST (HIGHEST PRIORITY):
+- When a user types "/langchain" followed by ANY text, they want you to use LangChain Agent MCP tools to process their request
+- DO NOT use GitHub tools, DO NOT use Exa Search, DO NOT use Playwright, DO NOT use Maps when users type "/langchain"
+- DO NOT provide general knowledge or web search results when users type "/langchain"
+- You MUST call the LangChain Agent tools (tools starting with "langchain_") to get real results from the LangChain agent
+- LangChain Agent is an MCP server that provides agent execution capabilities - it can analyze, reason, and execute multi-step tasks
+- When users type "/langchain" followed by a request, identify the appropriate LangChain tool and call it
+- Examples:
+  * User says "/langchain test" → Call langchain_* tools (check available langchain_* tool names) to process the test request
+  * User says "/langchain analyze the economy" → Use LangChain agent tools to analyze the economy
+  * User says "/langchain" with any query → Use LangChain agent tools, NOT GitHub search or other tools
+- DO NOT respond with GitHub repository search results when users explicitly use "/langchain" - you MUST call the LangChain Agent tools
+- DO NOT use github_search_repositories, github_get_repository, or any GitHub tools when users type "/langchain"
+- LangChain Agent tools return agent execution results - present these to the user in a clear, helpful format
+- If a LangChain tool call fails or returns an error, explain the error to the user clearly
+- If a LangChain tool returns empty results, explain that to the user
+- NEVER respond with just "Tool execution completed" - always provide context about what the LangChain agent did and what it returned
 
 ALWAYS use function calling when tools are available. Never write code examples when you can use the tools directly. Always call the actual API tools to get real data, not just return links or generic responses.
 
@@ -242,17 +279,13 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
       }
     }
 
-    // Get available tools and convert to OpenAI format
-    let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = []
-    try {
-      tools = await getAvailableToolsAsOpenAIFunctions()
-      console.log(`[API Messages] Loaded ${tools.length} tools for function calling`)
-      if (tools.length > 0) {
-        console.log(`[API Messages] First 5 tool names:`, tools.slice(0, 5).map(t => t.function.name))
-        
-        // Check if screenshot tool is available and log it
-        const screenshotTool = tools.find(t => t.function.name === 'playwright_browser_take_screenshot')
-        if (screenshotTool) {
+    // Tools are already loaded above, now log details
+    if (tools.length > 0) {
+      console.log(`[API Messages] First 5 tool names:`, tools.slice(0, 5).map(t => t.function.name))
+      
+      // Check if screenshot tool is available and log it
+      const screenshotTool = tools.find(t => t.function.name === 'playwright_browser_take_screenshot')
+      if (screenshotTool) {
           console.log(`[API Messages] ✅ Screenshot tool found: playwright_browser_take_screenshot`)
           console.log(`[API Messages] Screenshot tool description (first 200 chars):`, screenshotTool.function.description?.substring(0, 200))
         } else {
@@ -279,31 +312,27 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
           }
         }
         
-        // Check if user is requesting Brave Search
-        const isBraveRequest = content?.toLowerCase().startsWith('/brave') || content?.toLowerCase().includes('/brave ')
-        if (isBraveRequest) {
-          console.log(`[API Messages] 🔍 User requested Brave Search - checking if Brave tools are available`)
-          const braveTools = tools.filter(t => t.function.name.startsWith('brave_'))
-          if (braveTools.length === 0) {
-            console.error(`[API Messages] ❌ CRITICAL: No Brave Search tools available! User typed "/brave" but tools are not loaded.`)
+        // Check if user is requesting Exa Search
+        const isExaRequest = content?.toLowerCase().startsWith('/exa') || content?.toLowerCase().includes('/exa ')
+        if (isExaRequest) {
+          console.log(`[API Messages] 🔍 User requested Exa Search - checking if Exa tools are available`)
+          const exaTools = tools.filter(t => t.function.name.startsWith('exa_'))
+          if (exaTools.length === 0) {
+            console.error(`[API Messages] ❌ CRITICAL: No Exa Search tools available! User typed "/exa" but tools are not loaded.`)
             console.error(`[API Messages] Available tool prefixes: ${[...new Set(tools.map(t => t.function.name.split('_')[0]))].join(', ')}`)
           } else {
-            console.log(`[API Messages] ✅ Found ${braveTools.length} Brave Search tools: ${braveTools.map(t => t.function.name).join(', ')}`)
-            const webSearchTool = braveTools.find(t => t.function.name === 'brave_web_search' || t.function.name.includes('web_search'))
+            console.log(`[API Messages] ✅ Found ${exaTools.length} Exa Search tools: ${exaTools.map(t => t.function.name).join(', ')}`)
+            const webSearchTool = exaTools.find(t => t.function.name.includes('web_search') || t.function.name === 'exa_web_search_exa')
             if (webSearchTool) {
-              console.log(`[API Messages] ✅ brave_web_search tool is available and should be used`)
+              console.log(`[API Messages] ✅ exa_web_search_exa tool is available and should be used`)
             } else {
-              console.warn(`[API Messages] ⚠️ brave_web_search tool NOT found! Available Brave tools: ${braveTools.map(t => t.function.name).join(', ')}`)
+              console.warn(`[API Messages] ⚠️ exa_web_search_exa tool NOT found! Available Exa tools: ${exaTools.map(t => t.function.name).join(', ')}`)
             }
           }
         }
       } else {
         console.warn(`[API Messages] No tools loaded! This means function calling won't work.`)
       }
-    } catch (error) {
-      console.error("[API Messages] Error loading tools:", error)
-      // Continue without tools if loading fails
-    }
     
     // Call OpenAI API with function calling support
     const requestOptions: OpenAI.Chat.Completions.ChatCompletionCreateParams = {
@@ -553,7 +582,7 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
 
         assistantMessage = completion.choices[0]?.message?.content || "Tool execution completed. Please check the tool results above for any errors or empty responses."
       }
-    }
+    } // End of if (toolCalls.length > 0)
 
     // Extract image data from tool results (e.g., Playwright screenshots)
     let extractedImageData: string | null = null
@@ -729,26 +758,28 @@ CRITICAL: When you call tools and receive results, you MUST explain what happene
       content: assistantMessage,
       imageUrl: extractedImageData || undefined,
       model: completion.model,
-    })
-  } catch (error: any) {
+    });
+  } catch (error) {
     console.error("[API] Error processing message:", error)
     
     // Provide more specific error messages
     let errorMessage = "Failed to process message"
     let statusCode = 500
     
-    if (error.message?.includes("API key")) {
-      errorMessage = error.message
-      statusCode = 401
-    } else if (error.message) {
-      errorMessage = error.message
+    if (error instanceof Error) {
+      if (error.message?.includes("API key")) {
+        errorMessage = error.message
+        statusCode = 401
+      } else if (error.message) {
+        errorMessage = error.message
+      }
     }
     
     return NextResponse.json(
       {
         error: errorMessage,
-        details: error.message || "Unknown error",
-        stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+        details: error instanceof Error ? error.message : "Unknown error",
+        stack: process.env.NODE_ENV === "development" && error instanceof Error ? error.stack : undefined,
       },
       { status: statusCode }
     )

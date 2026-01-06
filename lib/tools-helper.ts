@@ -1,6 +1,41 @@
 import OpenAI from 'openai'
 import { McpClient, buildMcpConfig, type McpRouteConfigInput, type ToolSchema, ensureManagedGoogleConfig, validateManagedServerConfig } from './mcpClient'
 import { supabase } from './supabase-client'
+import { getAuthenticatedUser } from './get-user-session'
+
+/**
+ * Log tool invocation metrics to database (non-blocking)
+ */
+async function logToolMetric(params: {
+  serverId: string
+  toolName: string
+  status: 'success' | 'failed'
+  executionTimeMs: number
+  errorMessage?: string | null
+}): Promise<void> {
+  try {
+    // Get user ID if available (non-blocking if not available)
+    let userId: string | null = null
+    try {
+      const user = await getAuthenticatedUser()
+      userId = user?.id || null
+    } catch (e) {
+      // User not authenticated, continue without user_id
+    }
+    
+    await supabase.from('task_metrics').insert({
+      user_id: userId,
+      server_id: params.serverId,
+      tool_name: params.toolName,
+      status: params.status,
+      execution_time_ms: params.executionTimeMs,
+      error_message: params.errorMessage || null,
+    })
+  } catch (error) {
+    // Silently fail - metrics logging should not break tool execution
+    console.warn(`[Tools Helper] Failed to log metric:`, error)
+  }
+}
 
 /**
  * Get the authenticated GitHub user's username from the token
@@ -63,25 +98,23 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput): McpRo
     }
   }
   
-  if (serverId === 'brave') {
-    // Brave Search MCP server uses stdio transport with npx
-    // The MCP server requires --brave-api-key as a command-line argument
-    const apiKey = process.env.BRAVE_API_KEY
+  if (serverId === 'exa') {
+    // Exa Search MCP server uses HTTP transport with x-api-key header
+    const apiKey = process.env.EXA_API_KEY
     if (!apiKey) {
-      console.warn(`[Tools Helper] Warning: BRAVE_API_KEY environment variable not set. Brave Search tools will not work without an API key.`)
-      // Return config without API key - will fail but at least won't crash
+      console.warn(`[Tools Helper] Warning: EXA_API_KEY environment variable not set. Exa Search tools will not work without an API key.`)
+    }
+    if (apiKey && config.transport === 'http') {
       return {
         ...config,
-        transport: 'stdio',
-        command: 'npx',
-        args: ['-y', '@brave/brave-search-mcp-server'],
+        transport: 'http',
+        url: config.url || 'https://mcp.exa.ai/mcp',
+        headers: {
+          ...(config.headers || {}),
+          'Accept': 'application/json, text/event-stream', // Exa requires both
+          'x-api-key': apiKey, // Exa uses x-api-key header, not Authorization
+        },
       }
-    }
-    return {
-      ...config,
-      transport: 'stdio',
-      command: 'npx',
-      args: ['-y', '@brave/brave-search-mcp-server', '--brave-api-key', apiKey],
     }
   }
   
@@ -130,6 +163,18 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput): McpRo
     }
   }
   
+  if (serverId === 'langchain') {
+    // LangChain Agent MCP server uses REST/HTTP transport
+    // Server URL: https://langchain-agent-mcp-server-554655392699.us-central1.run.app
+    // Uses /mcp/invoke endpoint for JSON-RPC calls
+    // No API key needed (server-side OPENAI_API_KEY is used)
+    return {
+      ...config,
+      transport: 'http',
+      url: config.url || 'https://langchain-agent-mcp-server-554655392699.us-central1.run.app',
+    }
+  }
+  
   return config
 }
 
@@ -145,7 +190,7 @@ function convertToolToOpenAIFunction(
   // Special handling: if tool name already starts with serverId, don't double-prefix
   let functionName: string
   if (tool.name.startsWith(`${serverId}_`)) {
-    // Tool already has server prefix (e.g., brave_web_search from Brave MCP server)
+    // Tool already has server prefix (e.g., exa_web_search_exa from Exa MCP server)
     functionName = tool.name.replace(/[^a-zA-Z0-9_-]/g, '_')
   } else {
     // Add server prefix (e.g., browser_navigate -> playwright_browser_navigate)
@@ -202,17 +247,22 @@ function convertToolToOpenAIFunction(
     }
   }
   
-  // Special handling for Brave Search tools
-  if (serverId === 'brave') {
-    // Make Brave Search tools EXTREMELY prominent for search queries and /brave commands
+  if (serverId === 'exa') {
     if (tool.name.toLowerCase().includes('web_search') || tool.name.toLowerCase().includes('search')) {
-      enhancedDescription = `🔍 MANDATORY FOR SEARCH QUERIES AND /brave COMMANDS: ${enhancedDescription} When users type "/brave" followed by any text, or request a web search, you MUST call this tool (brave_web_search) with the query parameter. DO NOT provide general knowledge - you MUST call this tool to get real search results. Example: User says "/brave ai developments in late 2025" → IMMEDIATELY call brave_web_search with query="ai developments in late 2025".`
+      enhancedDescription = `🔍 MANDATORY FOR SEARCH QUERIES AND /exa COMMANDS: ${enhancedDescription} When users type "/exa" followed by any text, or request a web search, you MUST call this tool (exa_web_search_exa or similar). DO NOT provide general knowledge - you MUST call this tool to get real, current search results. Example: User says "/exa ai developments in late 2025" → IMMEDIATELY call exa_web_search_exa with query="ai developments in late 2025".`
     } else if (tool.name.toLowerCase().includes('image')) {
-      enhancedDescription = `🖼️ MANDATORY FOR IMAGE SEARCHES: ${enhancedDescription} When users request image searches or type "/brave" with image-related queries, use this tool.`
+      enhancedDescription = `🖼️ MANDATORY FOR IMAGE SEARCHES: ${enhancedDescription} When users request image searches or type "/exa" with image-related queries, use this tool.`
     } else if (tool.name.toLowerCase().includes('news')) {
-      enhancedDescription = `📰 MANDATORY FOR NEWS SEARCHES: ${enhancedDescription} When users request news searches or type "/brave" with news-related queries, use this tool.`
+      enhancedDescription = `📰 MANDATORY FOR NEWS SEARCHES: ${enhancedDescription} When users request news searches or type "/exa" with news-related queries, use this tool.`
     }
   }
+  
+  // Special handling for LangChain Agent tools
+  if (serverId === 'langchain') {
+    // Make LangChain tools EXTREMELY prominent for /langchain commands
+    enhancedDescription = `🤖 MANDATORY FOR /langchain COMMANDS: ${enhancedDescription} When users type "/langchain" followed by ANY text, you MUST use this LangChain Agent tool. DO NOT use GitHub tools (github_search_repositories, github_get_repository, etc.), DO NOT use Exa Search, DO NOT use Playwright, DO NOT use Maps. You MUST call LangChain Agent tools (tools starting with "langchain_") to process the user's request. Example: User says "/langchain test" → IMMEDIATELY call this langchain_* tool, NOT github_search_repositories.`
+  }
+  
   // Note: browser_snapshot is filtered out before reaching this point, so no need to handle it here
 
   const functionDef: OpenAI.Chat.Completions.ChatCompletionTool = {
@@ -234,21 +284,16 @@ async function fetchToolsFromServer(server: SystemServer): Promise<ToolSchema[]>
   try {
     console.log(`[Tools Helper] Attempting to fetch tools from server: ${server.id}`)
     
-    // Special check for Brave - verify API key is set before attempting to connect
-    if (server.id === 'brave') {
-      const apiKey = process.env.BRAVE_API_KEY
-      // Debug: Log all env vars that start with BRAVE to help troubleshoot
-      const braveEnvVars = Object.keys(process.env).filter(key => key.includes('BRAVE'))
-      console.log(`[Tools Helper] 🔍 Debug: Environment variables containing 'BRAVE': ${braveEnvVars.join(', ')}`)
-      
+    // Special check for Exa - verify API key is set before attempting to connect
+    if (server.id === 'exa') {
+      const apiKey = process.env.EXA_API_KEY
       if (!apiKey) {
-        console.error(`[Tools Helper] ❌ BRAVE_API_KEY environment variable is not set! Brave Search tools will not be available.`)
-        console.error(`[Tools Helper] Please set BRAVE_API_KEY in your .env.local file and restart the dev server.`)
-        console.error(`[Tools Helper] Current working directory: ${process.cwd()}`)
-        console.error(`[Tools Helper] NODE_ENV: ${process.env.NODE_ENV}`)
+        console.error(`[Tools Helper] ❌ EXA_API_KEY environment variable is not set! Exa Search tools will not be available.`)
+        console.error(`[Tools Helper] Please set EXA_API_KEY in your .env.local file and restart the dev server.`)
+        console.error(`[Tools Helper] Get an API key at: https://docs.exa.ai/reference/exa-mcp`)
         return []
       }
-      console.log(`[Tools Helper] ✅ BRAVE_API_KEY is set (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...)`)
+      console.log(`[Tools Helper] ✅ EXA_API_KEY is set (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...)`)
     }
     
     // Special check for GitHub - verify API key is set before attempting to connect
@@ -263,6 +308,11 @@ async function fetchToolsFromServer(server: SystemServer): Promise<ToolSchema[]>
       console.log(`[Tools Helper] ✅ GITHUB_PERSONAL_ACCESS_TOKEN is set (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...)`)
     }
     
+    // LangChain server uses REST transport - no special checks needed
+    if (server.id === 'langchain') {
+      console.log(`[Tools Helper] ✅ LangChain Agent server configured (REST transport)`)
+    }
+    
     let config = server.config as McpRouteConfigInput
     config.id = server.id
     config.name = server.name
@@ -274,8 +324,7 @@ async function fetchToolsFromServer(server: SystemServer): Promise<ToolSchema[]>
       command: config.command, 
       hasArgs: !!config.args,
       argsCount: config.args?.length || 0,
-      // For Brave, log if API key is in args (but don't log the actual key)
-      hasApiKeyArg: server.id === 'brave' ? config.args?.includes('--brave-api-key') : undefined
+      hasAuthorization: !!config.headers?.Authorization,
     }))
     
     let mcpConfig = buildMcpConfig(config)
@@ -372,16 +421,15 @@ export async function getAvailableToolsAsOpenAIFunctions(): Promise<
         }
       }
       
-      // Log all Brave Search tool names for debugging
-      if (server.id === 'brave') {
+      if (server.id === 'exa') {
         if (tools.length === 0) {
-          console.warn(`[Tools Helper] ⚠️ Brave Search returned 0 tools! This usually means the MCP server failed to start. Check if BRAVE_API_KEY is set.`)
+          console.warn(`[Tools Helper] ⚠️ Exa Search returned 0 tools! This usually means the MCP endpoint or credentials failed. Check https://docs.exa.ai for troubleshooting.`)
         } else {
           const toolNames = tools.map(t => t.name).sort()
-          console.log(`[Tools Helper] Brave Search tool names: ${toolNames.join(', ')}`)
-          const webSearchTool = tools.find(t => t.name === 'brave_web_search' || t.name === 'web_search')
+          console.log(`[Tools Helper] Exa Search tool names: ${toolNames.join(', ')}`)
+          const webSearchTool = tools.find(t => t.name.includes('web_search'))
           if (webSearchTool) {
-            console.log(`[Tools Helper] ✅ Found web search tool in Brave Search tools`)
+            console.log(`[Tools Helper] ✅ Found web search tool in Exa Search tools`)
           }
         }
       }
@@ -403,6 +451,37 @@ export async function getAvailableToolsAsOpenAIFunctions(): Promise<
           } else {
             console.warn(`[Tools Helper] ⚠️ Could not find search_repositories tool in GitHub tools`)
           }
+        }
+      }
+      
+      // Log LangChain tool names for debugging
+      if (server.id === 'langchain') {
+        if (tools.length === 0) {
+          console.warn(`[Tools Helper] ⚠️ LangChain Agent returned 0 tools! Adding hardcoded tool as fallback.`)
+          // Fallback: Add hardcoded tool if server doesn't return tools
+          // Note: Server now supports /tools endpoint, so this should rarely be needed
+          tools.push({
+            name: 'agent_executor',
+            description: 'Execute a complex, multi-step reasoning task using the LangChain Agent. The agent can analyze, reason, and execute multi-step tasks based on your request.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: {
+                  type: 'string',
+                  description: 'The task or query to execute using the LangChain Agent',
+                },
+                system_instruction: {
+                  type: 'string',
+                  description: 'Optional system-level instructions for the agent',
+                },
+              },
+              required: ['query'],
+            },
+          })
+          console.log(`[Tools Helper] ✅ Added hardcoded LangChain agent_executor tool as fallback`)
+        } else {
+          const toolNames = tools.map(t => t.name).sort()
+          console.log(`[Tools Helper] ✅ LangChain Agent tool names (from /tools endpoint): ${toolNames.join(', ')}`)
         }
       }
       
@@ -484,7 +563,13 @@ export async function invokeToolByName(
     .single()
 
   if (error || !server) {
-    throw new Error(`Server not found: ${serverId}`)
+    console.error(`[Tools Helper] ❌ Server not found: ${serverId}`, error)
+    // Try to list all available servers for debugging
+    const { data: allServers } = await supabase
+      .from('system_servers')
+      .select('id, name')
+    console.error(`[Tools Helper] Available servers:`, allServers?.map(s => s.id).join(', ') || 'none')
+    throw new Error(`Server not found: ${serverId}. Available servers: ${allServers?.map(s => s.id).join(', ') || 'none'}`)
   }
 
   let config = server.config as McpRouteConfigInput
@@ -543,11 +628,14 @@ export async function invokeToolByName(
   const client = new McpClient(mcpConfig)
   
   // Check if the tool name already includes the server prefix
-  // Some MCP servers (like Brave) return tools with names like "brave_web_search"
+  // Some MCP servers (like Exa) return tools with names like "exa_web_search_exa"
   // In that case, we need to use the full functionName, not the parsed toolName
   let actualToolName = toolName
   try {
+    console.log(`[Tools Helper] Fetching tools from ${serverId} to verify tool name "${toolName}"...`)
     const availableTools = await client.listTools()
+    console.log(`[Tools Helper] Available tools from ${serverId}:`, availableTools.map(t => t.name).join(', '))
+    
     // Check if functionName exactly matches a tool name (e.g., "brave_web_search")
     const exactMatch = availableTools.find(t => t.name === functionName)
     if (exactMatch) {
@@ -556,36 +644,92 @@ export async function invokeToolByName(
     } else {
       // Check if parsed toolName matches (e.g., "web_search")
       const parsedMatch = availableTools.find(t => t.name === toolName)
-      if (!parsedMatch) {
+      if (parsedMatch) {
+        actualToolName = toolName
+        console.log(`[Tools Helper] Using parsed tool name "${actualToolName}"`)
+      } else {
         // Try to find a tool that ends with the parsed toolName (e.g., "brave_web_search" ends with "web_search")
         const suffixMatch = availableTools.find(t => t.name.endsWith(`_${toolName}`) || t.name === toolName)
         if (suffixMatch) {
           actualToolName = suffixMatch.name
           console.log(`[Tools Helper] Found tool by suffix match: "${actualToolName}"`)
+        } else {
+          // For LangChain, the tool name should be "agent_executor"
+          if (serverId === 'langchain' && (toolName === 'agent' || toolName === 'agent_executor')) {
+            actualToolName = 'agent_executor'
+            console.log(`[Tools Helper] Using hardcoded LangChain tool name: "${actualToolName}"`)
+          } else {
+            console.warn(`[Tools Helper] ⚠️ Tool "${toolName}" not found in available tools. Available: ${availableTools.map(t => t.name).join(', ')}. Will try with parsed name.`)
+          }
         }
       }
     }
   } catch (error) {
     // If we can't fetch tools, fall back to using parsed toolName
-    console.warn(`[Tools Helper] Could not fetch tools to verify tool name, using parsed name: ${toolName}`)
+    console.warn(`[Tools Helper] Could not fetch tools to verify tool name, using parsed name: ${toolName}`, error)
+    // For LangChain, use agent_executor as fallback
+    if (serverId === 'langchain' && (toolName === 'agent' || toolName === 'agent_executor')) {
+      actualToolName = 'agent_executor'
+      console.log(`[Tools Helper] Using hardcoded LangChain tool name as fallback: "${actualToolName}"`)
+    }
   }
   
-  const response = await client.call('tools/call', {
-    name: actualToolName,
-    arguments: enhancedArgs,
-  })
+  console.log(`[Tools Helper] Invoking tool: ${serverId}_${actualToolName} with args:`, JSON.stringify(enhancedArgs).substring(0, 200))
   
-  if (response.error) {
-    throw new Error(response.error.message || `Failed to invoke tool ${functionName}`)
+  // Track metrics: start time
+  const startTime = Date.now()
+  let executionStatus: 'success' | 'failed' = 'success'
+  let errorMessage: string | null = null
+  
+  try {
+    const response = await client.call('tools/call', {
+      name: actualToolName,
+      arguments: enhancedArgs,
+    })
+    
+    if (response.error) {
+      const errorMsg = response.error.message || `Failed to invoke tool ${functionName}`
+      console.error(`[Tools Helper] ❌ Tool call error:`, errorMsg)
+      console.error(`[Tools Helper] Full error response:`, JSON.stringify(response.error))
+      executionStatus = 'failed'
+      errorMessage = errorMsg
+      throw new Error(errorMsg)
+    }
+    
+    let result = response.result
+    
+    // Add Windows buffer delay after screenshot operations to allow frame buffer to capture
+    if (serverId === 'playwright' && toolName === 'browser_take_screenshot' && process.platform === 'win32') {
+      console.log(`[Tools Helper] Adding Windows buffer delay after screenshot...`)
+      await new Promise(resolve => setTimeout(resolve, 1000)) // 1 second delay for Windows
+    }
+    
+    // Log successful tool invocation to metrics (non-blocking)
+    const executionTime = Date.now() - startTime
+    logToolMetric({
+      serverId,
+      toolName: actualToolName,
+      status: 'success',
+      executionTimeMs: executionTime,
+    }).catch(err => {
+      console.warn(`[Tools Helper] Failed to log metric:`, err)
+    })
+    
+    return result
+  } catch (error) {
+    // Log failed tool invocation to metrics (non-blocking)
+    const executionTime = Date.now() - startTime
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+    logToolMetric({
+      serverId,
+      toolName: actualToolName,
+      status: 'failed',
+      executionTimeMs: executionTime,
+      errorMessage: errorMsg,
+    }).catch(err => {
+      console.warn(`[Tools Helper] Failed to log metric:`, err)
+    })
+    
+    throw error
   }
-  
-  let result = response.result
-  
-  // Add Windows buffer delay after screenshot operations to allow frame buffer to capture
-  if (serverId === 'playwright' && toolName === 'browser_take_screenshot' && process.platform === 'win32') {
-    console.log(`[Tools Helper] Adding Windows buffer delay after screenshot...`)
-    await new Promise(resolve => setTimeout(resolve, 1000)) // 1 second delay for Windows
-  }
-  
-  return result
 }

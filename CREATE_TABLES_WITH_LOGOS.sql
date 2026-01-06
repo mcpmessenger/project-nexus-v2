@@ -59,7 +59,7 @@ CREATE TRIGGER update_user_servers_updated_at
 
 -- Seed initial system servers with logos
 INSERT INTO system_servers (id, name, config, enabled, rate_limit_per_minute, logo_url) VALUES
-  ('brave', 'Brave Search', '{"transport": "http", "url": "https://api.search.brave.com/res/v1/web/search"}', true, 60, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/brave/brave-original.svg'),
+  ('exa', 'Exa Search', '{"transport": "http", "url": "https://mcp.exa.ai/mcp"}', true, 60, '/images/exa-color.png'),
   ('maps', 'Google Maps Grounding', '{"transport": "http", "url": "https://mapstools.googleapis.com/mcp"}', true, 100, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg'),
   ('github', 'GitHub', '{"transport": "http", "url": "https://api.github.com"}', true, 60, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/github/github-original.svg'),
   ('playwright', 'Playwright', '{"transport": "http", "url": "ws://localhost:3001"}', true, 10, 'https://playwright.dev/img/playwright-logo.svg')

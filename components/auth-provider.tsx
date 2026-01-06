@@ -49,9 +49,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(mapSupabaseUser(session?.user ?? null))
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const newUser = mapSupabaseUser(session?.user ?? null)
+      setUser(newUser)
       setLoading(false)
+      
+      // Migrate localStorage servers to Supabase on first login
+      if (event === "SIGNED_IN" && newUser && typeof window !== "undefined") {
+        try {
+          const storedUserServers = localStorage.getItem("user_servers")
+          if (storedUserServers) {
+            const userServers = JSON.parse(storedUserServers)
+            if (userServers.length > 0) {
+              console.log(`[Auth] Migrating ${userServers.length} servers from localStorage to Supabase...`)
+              
+              // Migrate each server to Supabase
+              for (const server of userServers) {
+                try {
+                  const response = await fetch("/api/servers", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      name: server.name,
+                      url: server.url,
+                      transport: server.transport,
+                      apiKey: server.apiKey,
+                      logoUrl: server.logoUrl,
+                      description: server.description,
+                    }),
+                  })
+                  
+                  if (response.ok) {
+                    console.log(`[Auth] ✅ Migrated server: ${server.name}`)
+                  } else {
+                    console.error(`[Auth] ❌ Failed to migrate server: ${server.name}`)
+                  }
+                } catch (error) {
+                  console.error(`[Auth] Error migrating server ${server.name}:`, error)
+                }
+              }
+              
+              // Clear localStorage after successful migration
+              localStorage.removeItem("user_servers")
+              console.log("[Auth] ✅ Migration complete, localStorage cleared")
+              
+              // Dispatch event to refresh server lists
+              window.dispatchEvent(new Event("userServersUpdated"))
+            }
+          }
+        } catch (error) {
+          console.error("[Auth] Error during server migration:", error)
+        }
+      }
     })
 
     return () => subscription.unsubscribe()

@@ -44,7 +44,7 @@ graph TB
     end
     
     subgraph "External MCP Servers"
-        Brave[Brave Search<br/>REST API]
+        Exa[Exa Search<br/>REST API]
         Maps[Google Maps Grounding<br/>SSE Endpoint]
         GitHub[GitHub<br/>REST API]
         Playwright[Playwright<br/>Browser Provider]
@@ -66,7 +66,7 @@ graph TB
     SupabaseDB --> PromptCache
     SupabaseDB --> JobResults
     EdgeFunc --> Secrets
-    MCPClient --> Brave
+    MCPClient --> Exa
     MCPClient --> Maps
     MCPClient --> GitHub
     MCPClient --> Playwright
@@ -646,7 +646,7 @@ Support for MCP Prompts (pre-defined prompt templates).
             "invoke" | "get_resource" | "get_prompt" | 
             "health" | "add_server" | "update_server" | "delete_server",
   "userId": "user-123",  // Optional, extracted from JWT if not provided
-  "toolName": "brave_search",  // For invoke
+"toolName": "exa_web_search_exa",  // For invoke
   "resourceUri": "file://docs/api.md",  // For get_resource
   "promptName": "code_review",  // For get_prompt
   "params": { ... },  // Tool/prompt arguments
@@ -659,8 +659,8 @@ Support for MCP Prompts (pre-defined prompt templates).
 {
   "tools": [
     {
-      "name": "brave_search",
-      "description": "Search the web using Brave",
+      "name": "exa_web_search_exa",
+      "description": "Search the web using Exa",
       "inputSchema": { ... },
       "metadata": {
         "category": "search",
@@ -668,7 +668,7 @@ Support for MCP Prompts (pre-defined prompt templates).
         "tags": ["web", "search"],
         "estimatedDuration": "fast"
       },
-      "serverId": "brave"
+      "serverId": "exa"
     }
   ],
   "cached": true,

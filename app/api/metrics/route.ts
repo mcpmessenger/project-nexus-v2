@@ -1,103 +1,126 @@
 import { NextResponse } from "next/server"
+import { getSupabaseClient } from "@/lib/get-user-session"
 
 // JSON metrics endpoint for dashboard consumption
 export async function GET() {
   try {
-    // Fetch worker status
-    // In production, this would fetch from actual worker registry
-    const mockWorkers = [
-      {
-        worker_id: "router-01",
-        type: "router",
-        status: "processing",
-        current_task_id: "task-456",
-        processed_count: 1247,
-        error_count: 3,
-        last_heartbeat: new Date().toISOString(),
-      },
-      {
-        worker_id: "vision-01",
-        type: "vision",
-        status: "processing",
-        current_task_id: "task-789",
-        processed_count: 892,
-        error_count: 12,
-        last_heartbeat: new Date().toISOString(),
-      },
-      {
-        worker_id: "vision-02",
-        type: "vision",
-        status: "idle",
-        processed_count: 743,
-        error_count: 8,
-        last_heartbeat: new Date().toISOString(),
-      },
-      {
-        worker_id: "tool-01",
-        type: "tool",
-        status: "idle",
-        processed_count: 523,
-        error_count: 5,
-        last_heartbeat: new Date().toISOString(),
-      },
-    ]
+    const supabase = await getSupabaseClient()
     
-    // Try to fetch from workers API, fallback to mock data
-    let workers = mockWorkers
-    try {
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const workersResponse = await fetch(`${baseUrl}/api/workers/status`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-        },
-      })
-      if (workersResponse.ok) {
-        const workersData = await workersResponse.json()
-        workers = workersData.workers || mockWorkers
+    // Query real metrics from task_metrics table
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const thirtySecondsAgo = new Date(Date.now() - 30 * 1000).toISOString()
+    
+    // Get total processed tasks (success) in last hour
+    const { count: processedCount } = await supabase
+      .from('task_metrics')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'success')
+      .gte('created_at', oneHourAgo)
+    
+    // Get total failed tasks in last hour
+    const { count: failedCount } = await supabase
+      .from('task_metrics')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'failed')
+      .gte('created_at', oneHourAgo)
+    
+    // Get active workers (tasks that completed or are pending in last 30 seconds)
+    const { count: activeWorkersCount } = await supabase
+      .from('task_metrics')
+      .select('*', { count: 'exact', head: true })
+      .in('status', ['success', 'pending'])
+      .gte('created_at', thirtySecondsAgo)
+    
+    // Get metrics by server type
+    const { data: metricsByServer } = await supabase
+      .from('task_metrics')
+      .select('server_id, status')
+      .gte('created_at', oneHourAgo)
+    
+    // Calculate metrics by server
+    const serverMetrics: Record<string, { processed: number; failed: number }> = {}
+    if (metricsByServer) {
+      for (const metric of metricsByServer) {
+        if (!serverMetrics[metric.server_id]) {
+          serverMetrics[metric.server_id] = { processed: 0, failed: 0 }
+        }
+        if (metric.status === 'success') {
+          serverMetrics[metric.server_id].processed++
+        } else if (metric.status === 'failed') {
+          serverMetrics[metric.server_id].failed++
+        }
       }
-    } catch (err) {
-      // Fallback to mock data if fetch fails
-      console.warn('Could not fetch worker status, using mock data:', err)
     }
-
-    // Calculate aggregated metrics
+    
+    // Get time-series data for charts (last 5 minutes, aggregated by minute)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const { data: timeSeriesData } = await supabase
+      .from('task_metrics')
+      .select('created_at, status')
+      .gte('created_at', fiveMinutesAgo)
+      .order('created_at', { ascending: true })
+    
+    // Build time-series data points (aggregate by minute)
+    const timeSeries: Record<string, { processed: number; failed: number; active: number }> = {}
+    if (timeSeriesData) {
+      for (const metric of timeSeriesData) {
+        const minute = new Date(metric.created_at).toISOString().substring(0, 16) // Round to minute
+        if (!timeSeries[minute]) {
+          timeSeries[minute] = { processed: 0, failed: 0, active: 0 }
+        }
+        if (metric.status === 'success') {
+          timeSeries[minute].processed++
+        } else if (metric.status === 'failed') {
+          timeSeries[minute].failed++
+        }
+        // Count as active if within last 30 seconds
+        if (new Date(metric.created_at) >= new Date(thirtySecondsAgo)) {
+          timeSeries[minute].active++
+        }
+      }
+    }
+    
+    // Build response with real data
     const metrics = {
       workers: {
-        total: workers.length,
-        active: workers.filter((w: any) => w.status === 'processing').length,
-        idle: workers.filter((w: any) => w.status === 'idle').length,
-        error: workers.filter((w: any) => w.status === 'error').length,
+        total: 0, // Not tracking individual workers yet
+        active: activeWorkersCount || 0,
+        idle: 0,
+        error: 0,
         byType: {
-          router: workers.filter((w: any) => w.type === 'router').length,
-          vision: workers.filter((w: any) => w.type === 'vision').length,
-          tool: workers.filter((w: any) => w.type === 'tool').length,
+          router: 0,
+          vision: 0,
+          tool: 0,
         },
       },
       tasks: {
-        processed: workers.reduce((sum: number, w: any) => sum + (w.processed_count || 0), 0),
-        failed: workers.reduce((sum: number, w: any) => sum + (w.error_count || 0), 0),
+        processed: processedCount || 0,
+        failed: failedCount || 0,
+        timeSeries: Object.entries(timeSeries).map(([time, data]) => ({
+          time,
+          processed: data.processed,
+          failed: data.failed,
+          active: data.active,
+        })),
         byType: {
-          router: workers
-            .filter((w: any) => w.type === 'router')
-            .reduce((sum: number, w: any) => sum + (w.processed_count || 0), 0),
-          vision: workers
-            .filter((w: any) => w.type === 'vision')
-            .reduce((sum: number, w: any) => sum + (w.processed_count || 0), 0),
-          tool: workers
-            .filter((w: any) => w.type === 'tool')
-            .reduce((sum: number, w: any) => sum + (w.processed_count || 0), 0),
+          router: serverMetrics['router']?.processed || 0,
+          vision: serverMetrics['vision']?.processed || 0,
+          tool: serverMetrics['tool']?.processed || 0,
+          exa: serverMetrics['exa']?.processed || 0,
+          github: serverMetrics['github']?.processed || 0,
+          playwright: serverMetrics['playwright']?.processed || 0,
+          maps: serverMetrics['maps']?.processed || 0,
+          langchain: serverMetrics['langchain']?.processed || 0,
         },
         failedByType: {
-          router: workers
-            .filter((w: any) => w.type === 'router')
-            .reduce((sum: number, w: any) => sum + (w.error_count || 0), 0),
-          vision: workers
-            .filter((w: any) => w.type === 'vision')
-            .reduce((sum: number, w: any) => sum + (w.error_count || 0), 0),
-          tool: workers
-            .filter((w: any) => w.type === 'tool')
-            .reduce((sum: number, w: any) => sum + (w.error_count || 0), 0),
+          router: serverMetrics['router']?.failed || 0,
+          vision: serverMetrics['vision']?.failed || 0,
+          tool: serverMetrics['tool']?.failed || 0,
+          exa: serverMetrics['exa']?.failed || 0,
+          github: serverMetrics['github']?.failed || 0,
+          playwright: serverMetrics['playwright']?.failed || 0,
+          maps: serverMetrics['maps']?.failed || 0,
+          langchain: serverMetrics['langchain']?.failed || 0,
         },
       },
       timestamp: new Date().toISOString(),

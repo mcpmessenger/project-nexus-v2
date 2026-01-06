@@ -32,7 +32,7 @@ graph TB
     end
     
     subgraph "External MCP Servers"
-        Brave[Brave Search<br/>REST API]
+        Exa[Exa Search<br/>REST API]
         Maps[Google Maps Grounding<br/>SSE Endpoint]
         GitHub[GitHub<br/>REST API]
         Playwright[Playwright<br/>Browser Provider]
@@ -48,7 +48,7 @@ graph TB
     SupabaseDB --> UserServers
     SupabaseDB --> SystemServers
     EdgeFunc --> Secrets
-    MCPClient --> Brave
+    MCPClient --> Exa
     MCPClient --> Maps
     MCPClient --> GitHub
     MCPClient --> Playwright
@@ -68,7 +68,7 @@ sequenceDiagram
     participant API as /api/hub
     participant Hub as Edge Function
     participant DB as Supabase DB
-    participant Brave as Brave Server
+    participant Exa as Exa Search Server
     participant Maps as Maps Server
     
     UI->>API: GET /api/hub?action=list_tools
@@ -76,8 +76,8 @@ sequenceDiagram
     Hub->>DB: Load system_servers
     Hub->>DB: Load user_servers (for user)
     DB-->>Hub: Server configurations
-    Hub->>Brave: list_tools request
-    Brave-->>Hub: Tools: [search]
+    Hub->>Exa: list_tools request
+    Exa-->>Hub: Tools: [search]
     Hub->>Maps: list_tools request
     Maps-->>Hub: Tools: [geocode, places_search]
     Hub->>Hub: Namespace tools (brave_search, maps_geocode, maps_places_search)
@@ -185,10 +185,10 @@ sequenceDiagram
 
 #### 2.4 Server Adapters (`servers/`)
 
-**Brave Adapter** (`servers/brave.ts`):
-- Connects to Brave Search API via REST
-- Transforms API responses to MCP tool format
-- Handles API key authentication
+**Exa Adapter** (`servers/exa.ts`):
+- Connects to Exa Search MCP HTTP endpoint
+- Transforms JSON-RPC responses into MCP tool format
+- Handles API key via headers/query for `EXA_API_KEY`
 
 **Maps Adapter** (`servers/maps.ts`):
 - Connects to Google Maps Grounding Lite via SSE
@@ -222,12 +222,14 @@ Pre-configured system servers available to all users.
 **Example row**:
 ```json
 {
-  "id": "brave",
-  "name": "Brave Search",
+  "id": "exa",
+  "name": "Exa Search",
   "config": {
     "transport": "http",
-    "url": "https://api.search.brave.com/res/v1/web/search",
-    "headers": {}
+    "url": "https://mcp.exa.ai/mcp",
+    "headers": {
+      "Accept": "application/json"
+    }
   },
   "enabled": true
 }
@@ -272,10 +274,10 @@ User-configured custom MCP servers.
 
 ### 4. External MCP Servers
 
-**Brave Search**:
+**Exa Search**:
 - Type: REST API
-- Authentication: API key (stored in Supabase secrets)
-- Tools: `search` → namespaced as `brave_search`
+- Authentication: API key (append `exaApiKey` or `Authorization` header; see https://docs.exa.ai/reference/exa-mcp)
+- Tools: `web_search_exa`, `deep_search_exa`, `get_code_context_exa`, etc. → namespaced as `exa_*`
 
 **Google Maps Grounding**:
 - Type: SSE endpoint
@@ -379,9 +381,19 @@ graph LR
 - `SUPABASE_URL` - Auto-provided by Supabase
 - `SUPABASE_ANON_KEY` - Auto-provided by Supabase
 - Secrets (via `supabase secrets set`):
-  - `BRAVE_API_KEY` - Brave Search API key
+  - `EXA_API_KEY` - Exa Search API key (optional; used to preconfigure the system HTTP server)
   - `GOOGLE_MAPS_GROUNDING_API_KEY` - Google Maps API key
   - `PLAYWRIGHT_ENDPOINT` - Browser provider endpoint (optional)
+
+## System Server UX & Add Server Flow
+
+- The Next.js API at `app/api/servers/route.ts` populates six `system` servers (`exa`, `maps`, `playwright`, `github`, `langchain`, plus any custom defaults). Each entry carries metadata (`transport`, `logoUrl`, `rateLimit`) that powers the monitoring dashboard and the autocomplete suggestions on the `/workflows` page.
+- When a user adds or edits a server, the `AddServerDialog` in `app/monitoring/page.tsx`:
+  1. Uses `KNOWN_SERVERS` to prefill canonical URLs and API key guidance for well-known providers.
+  2. Calls `/api/mcp` with a `health` action to validate the configuration before saving.
+  3. Persists the configuration to Supabase when logged in (via `/api/servers` POST) or to `localStorage` for guests, then fires a `userServersUpdated` event so other tabs stay in sync.
+  4. Stores helper API keys (GitHub PAT, Exa API key) locally so future sessions can rehydrate the connection without forcing the user to re-enter secrets.
+- The `/workflows` UI listens for `userServersUpdated` and watches the derived server signature: whenever the registry changes, `allTools` is cleared, a refresh trigger increments, and the new `fetchAllTools` workflow automatically reloads every server’s tool list. This keeps autocomplete (`/#` + `/servers`) and slash commands aligned with the latest uploads without requiring a reload.
 
 ## Performance Considerations
 
@@ -485,7 +497,7 @@ Main multiplexer endpoint.
 {
   "action": "list_tools" | "invoke" | "health",
   "userId": "user-123",
-  "toolName": "brave_search",  // Required for "invoke"
+  "toolName": "exa_web_search_exa",  // Required for "invoke"
   "params": {                   // Required for "invoke"
     "query": "search term"
   }
@@ -497,8 +509,8 @@ Main multiplexer endpoint.
 {
   "tools": [
     {
-      "name": "brave_search",
-      "description": "Search the web using Brave",
+      "name": "exa_web_search_exa",
+      "description": "Search the web using Exa",
       "inputSchema": { ... }
     },
     {

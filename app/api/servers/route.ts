@@ -5,14 +5,14 @@ import { getAuthenticatedUser, getSupabaseClient } from "@/lib/get-user-session"
 export async function GET() {
   const systemServers = [
     {
-      id: "brave",
-      name: "Brave Search",
+      id: "exa",
+      name: "Exa Search",
       type: "system" as const,
       enabled: true,
-      logoUrl: "/images/Brave-web-browser-logo-transparent-PNG-image-jpg.webp",
+      logoUrl: "/images/exa-color.png",
       transport: "http" as const,
       rateLimit: 60,
-      description: "Web search using Brave Search API",
+      description: "Exa AI-powered live web search and deep research tools",
     },
     {
       id: "maps",

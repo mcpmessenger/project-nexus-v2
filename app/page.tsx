@@ -62,7 +62,7 @@ export default function LandingPage() {
     { name: "MCP", icon: "/images/mcpwhtbggd.png", serverId: null },
     { name: "GitHub", icon: "/images/Octicons-mark-github.svg.png", serverId: "github" },
     { name: "Google Maps", icon: "/images/Google_Maps_icon_(2020).svg", serverId: "maps" },
-    { name: "Brave", icon: "/images/Brave-web-browser-logo-transparent-PNG-image-jpg.webp", serverId: "brave" },
+    { name: "Exa Search", icon: "/images/exa-color.png", serverId: "exa" },
     { name: "Playwright", icon: "/images/playwright.png", serverId: "playwright" },
   ]
 

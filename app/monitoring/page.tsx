@@ -359,15 +359,20 @@ const KNOWN_SERVERS: Record<string, { url: string; requiresApiKey?: boolean; api
     requiresApiKey: true,
     apiKeyLink: "https://console.cloud.google.com/apis/credentials"
   },
-  "brave search": { 
-    url: "https://api.search.brave.com/res/v1/web/search", 
+  "exa": {
+    url: "https://mcp.exa.ai/mcp",
     requiresApiKey: true,
-    apiKeyLink: "https://brave.com/search/api/"
+    apiKeyLink: "https://docs.exa.ai/reference/exa-mcp",
   },
-  "brave": { 
-    url: "https://api.search.brave.com/res/v1/web/search", 
+  "exa search": {
+    url: "https://mcp.exa.ai/mcp",
     requiresApiKey: true,
-    apiKeyLink: "https://brave.com/search/api/"
+    apiKeyLink: "https://docs.exa.ai/reference/exa-mcp",
+  },
+  "exahosted": {
+    url: "https://mcp.exa.ai/mcp",
+    requiresApiKey: true,
+    apiKeyLink: "https://docs.exa.ai/reference/exa-mcp",
   },
   "github": { 
     url: "stdio", // GitHub MCP server uses stdio transport
@@ -409,8 +414,8 @@ function getApiKeyLink(serverName: string, serverId?: string): string | undefine
   if (normalizedName.includes("github")) {
     return "https://github.com/settings/tokens"
   }
-  if (normalizedName.includes("brave") || normalizedName.includes("search")) {
-    return "https://brave.com/search/api/"
+  if (normalizedName.includes("exa") || (normalizedName.includes("search") && !normalizedName.includes("github"))) {
+    return "https://docs.exa.ai/reference/exa-mcp"
   }
   if (normalizedName.includes("google") || normalizedName.includes("maps")) {
     return "https://console.cloud.google.com/apis/credentials"
@@ -470,8 +475,8 @@ function AddServerDialog({
       let savedApiKey = ""
       if (serverId === "github" || serverId.includes("github")) {
         savedApiKey = localStorage.getItem("github_personal_access_token") || editingServer.apiKey || ""
-      } else if (serverId === "brave" || serverId.includes("brave")) {
-        savedApiKey = localStorage.getItem("brave_api_key") || editingServer.apiKey || ""
+      } else if (serverId === "exa" || serverId.includes("exa")) {
+        savedApiKey = localStorage.getItem("exa_api_key") || editingServer.apiKey || ""
       } else {
         savedApiKey = editingServer.apiKey || ""
       }
@@ -524,16 +529,14 @@ function AddServerDialog({
       // Determine transport type based on server type or URL
       const isStdioServer = url === "stdio" || 
                            serverId === "github" || 
-                           serverId === "brave" || 
                            serverId === "playwright" ||
                            normalizedName === "github" ||
-                           normalizedName === "brave" ||
                            normalizedName === "playwright"
       
       let config: any
 
       if (isStdioServer) {
-        // Stdio transport servers (GitHub, Brave, Playwright)
+        // Stdio transport servers (GitHub, Playwright)
         if (serverId === "github" || normalizedName === "github") {
           // GitHub MCP server
           const token = apiKey || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN
@@ -554,24 +557,6 @@ function AddServerDialog({
             env: {
               GITHUB_PERSONAL_ACCESS_TOKEN: token,
             },
-          }
-        } else if (serverId === "brave" || normalizedName === "brave" || normalizedName.includes("brave")) {
-          // Brave Search MCP server
-          const braveKey = apiKey || process.env.BRAVE_API_KEY
-          if (!braveKey) {
-            setTestResult({ 
-              success: false, 
-              message: "Brave API key required. Set BRAVE_API_KEY environment variable or enter it in the API Key field." 
-            })
-            setTesting(false)
-            return
-          }
-          config = {
-            id: "brave",
-            name: name || "Brave Search",
-            transport: "stdio",
-            command: "npx",
-            args: ["-y", "@brave/brave-search-mcp-server", "--brave-api-key", braveKey],
           }
         } else if (serverId === "playwright" || normalizedName === "playwright") {
           // Playwright MCP server (no API key needed)
@@ -631,8 +616,8 @@ function AddServerDialog({
         if (apiKey) {
           if (normalizedName.includes("google") || normalizedName.includes("maps")) {
             config.headers = { "X-Goog-Api-Key": apiKey }
-          } else if (normalizedName.includes("brave")) {
-            config.headers = { "X-Subscription-Token": apiKey, "Accept": "application/json" }
+          } else if (normalizedName.includes("exa")) {
+            config.headers = { "x-api-key": apiKey, "Accept": "application/json" }
           } else {
             config.headers = { "Authorization": `Bearer ${apiKey}` }
           }
@@ -678,10 +663,10 @@ function AddServerDialog({
       console.log("GitHub token saved to localStorage")
     }
     
-    // Save Brave API key to localStorage if it's a Brave server
-    if ((serverId === "brave" || serverId.includes("brave")) && apiKey) {
-      localStorage.setItem("brave_api_key", apiKey.trim())
-      console.log("Brave API key saved to localStorage")
+    // Save Exa API key to localStorage if it's Exa Search
+    if ((serverId === "exa" || serverId.includes("exa")) && apiKey) {
+      localStorage.setItem("exa_api_key", apiKey.trim())
+      console.log("Exa API key saved to localStorage")
     }
     
     if (editingServer) {
@@ -702,11 +687,10 @@ function AddServerDialog({
       window.dispatchEvent(new Event("userServersUpdated"))
     } else {
       // Determine transport type
-      const normalizedName = name.toLowerCase().trim()
-      const isStdioServer = url === "stdio" || 
-                           normalizedName === "github" || 
-                           normalizedName === "brave" || 
-                           normalizedName === "playwright"
+    const normalizedName = name.toLowerCase().trim()
+    const isStdioServer = url === "stdio" || 
+                         normalizedName === "github" || 
+                         normalizedName === "playwright"
       
       const transport = isStdioServer ? "stdio" : "http"
       
@@ -834,14 +818,14 @@ function AddServerDialog({
                 }}
                 placeholder={(() => {
                   const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
-                  if (serverId === "github" || serverId === "brave" || serverId === "playwright") {
+                  if (serverId === "github" || serverId === "playwright") {
                     return "stdio (uses stdio transport)"
                   }
-                  return "https://api.example.com/mcp"
+                  return "https://mcp.exa.ai/mcp"
                 })()}
                 required={(() => {
                   const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
-                  return serverId !== "github" && serverId !== "brave" && serverId !== "playwright"
+                  return serverId !== "github" && serverId !== "playwright"
                 })()}
                 disabled={editingServer?.type === "system"}
                 className={`flex-1 ${editingServer?.type === "system" ? "bg-muted cursor-not-allowed" : ""}`}
@@ -1022,6 +1006,10 @@ function WorkerMonitoringSection() {
     failed: [],
     active: [],
   })
+  const [lastMetrics, setLastMetrics] = React.useState<{
+    processed: number
+    failed: number
+  }>({ processed: 0, failed: 0 })
 
   const fetchData = React.useCallback(async () => {
     try {
@@ -1030,20 +1018,34 @@ function WorkerMonitoringSection() {
       const metricsData = await metricsRes.json()
       setMetrics(metricsData)
 
+      // Calculate incremental values (new tasks since last poll)
+      const currentProcessed = metricsData.tasks?.processed || 0
+      const currentFailed = metricsData.tasks?.failed || 0
+      const newProcessed = currentProcessed - lastMetrics.processed
+      const newFailed = currentFailed - lastMetrics.failed
+      
+      // Update last metrics for next calculation
+      setLastMetrics({
+        processed: currentProcessed,
+        failed: currentFailed,
+      })
+
       // Update history (keep last 20 data points)
+      // For processed/failed: show incremental values (new tasks in this interval)
+      // For active: show current active count
       const now = new Date().toLocaleTimeString()
       setMetricsHistory((prev) => ({
         processed: [
           ...prev.processed.slice(-19),
-          { time: now, value: metricsData.tasks?.processed || 0 },
+          { time: now, value: newProcessed >= 0 ? newProcessed : 0 }, // Incremental
         ],
         failed: [
           ...prev.failed.slice(-19),
-          { time: now, value: metricsData.tasks?.failed || 0 },
+          { time: now, value: newFailed >= 0 ? newFailed : 0 }, // Incremental
         ],
         active: [
           ...prev.active.slice(-19),
-          { time: now, value: metricsData.workers?.active || 0 },
+          { time: now, value: metricsData.workers?.active || 0 }, // Current count
         ],
       }))
     } catch (err) {
