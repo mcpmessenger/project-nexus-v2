@@ -291,7 +291,7 @@ function convertToolToOpenAIFunction(
  */
 async function fetchToolsFromServer(
   server: SystemServer,
-  options?: { googleMapsApiKey?: string | null }
+  options?: { googleMapsApiKey?: string | null; googleMapsProjectId?: string | null }
 ): Promise<ToolSchema[]> {
   try {
     console.log(`[Tools Helper] Attempting to fetch tools from server: ${server.id}`)
@@ -338,6 +338,11 @@ async function fetchToolsFromServer(
       config.headers = {
         ...(config.headers || {}),
         'X-Goog-Api-Key': options.googleMapsApiKey,
+      }
+      // Add Project ID header if provided (for tools/list calls)
+      if (options?.googleMapsProjectId) {
+        config.headers['X-Goog-User-Project'] = options.googleMapsProjectId
+        console.log(`[Tools Helper] Added Maps Project ID to headers for tools/list: ${options.googleMapsProjectId}`)
       }
     }
     console.log(`[Tools Helper] Server ${server.id} config:`, JSON.stringify({ 
@@ -399,7 +404,7 @@ async function fetchToolsFromServer(
  * Get all available tools from system servers and convert to OpenAI format
  */
 export async function getAvailableToolsAsOpenAIFunctions(
-  options?: { googleMapsApiKey?: string | null }
+  options?: { googleMapsApiKey?: string | null; googleMapsProjectId?: string | null }
 ): Promise<
   OpenAI.Chat.Completions.ChatCompletionTool[]
 > {
@@ -559,6 +564,7 @@ function enhancePlaywrightNavigationArgs(toolName: string, args: Record<string, 
  */
 interface InvokeToolOptions {
   googleMapsApiKey?: string | null
+  googleMapsProjectId?: string | null
 }
 
 export async function invokeToolByName(
@@ -606,8 +612,8 @@ export async function invokeToolByName(
   config.id = server.id
   config.name = server.name
   
-  // For Maps servers, set user-provided key FIRST (before applyServerConfig)
-  // so it takes precedence over env vars
+  // For Maps servers, set user-provided key and project ID FIRST (before applyServerConfig)
+  // so they take precedence over env vars
   if (
     options?.googleMapsApiKey &&
     (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID)
@@ -616,13 +622,18 @@ export async function invokeToolByName(
       ...(config.headers || {}),
       'X-Goog-Api-Key': options.googleMapsApiKey.trim(),
     }
+    // Add Project ID header if provided (critical for billing attribution)
+    if (options?.googleMapsProjectId) {
+      config.headers['X-Goog-User-Project'] = options.googleMapsProjectId.trim()
+      console.log(`[Tools Helper] Using user-provided Maps Project ID: ${options.googleMapsProjectId.trim()}`)
+    }
     console.log(`[Tools Helper] Using user-provided Maps API key (length: ${options.googleMapsApiKey.trim().length})`)
   }
   
   // Apply server-specific config transformations
   config = applyServerConfig(server.id, config)
   
-  // Ensure user-provided key is still set (applyServerConfig might have overwritten it)
+  // Ensure user-provided key and project ID are still set (applyServerConfig might have overwritten them)
   if (
     options?.googleMapsApiKey &&
     (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID)
@@ -631,6 +642,11 @@ export async function invokeToolByName(
     config.headers = {
       ...(config.headers || {}),
       'X-Goog-Api-Key': trimmedKey,
+    }
+    // Ensure Project ID is set if provided
+    if (options?.googleMapsProjectId) {
+      config.headers['X-Goog-User-Project'] = options.googleMapsProjectId.trim()
+      console.log(`[Tools Helper] ✅ Set user-provided Maps Project ID in headers: ${options.googleMapsProjectId.trim()}`)
     }
     console.log(`[Tools Helper] ✅ Set user-provided Maps API key in headers (length: ${trimmedKey.length}, starts with: ${trimmedKey.substring(0, 10)}...)`)
   }

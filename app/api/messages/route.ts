@@ -23,6 +23,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { content, imageUrl, provider = "openai", apiKey } = body
     const mapsApiKey = body.mapsApiKey?.trim() || null
+    const mapsProjectId = body.mapsProjectId?.trim() || null
 
     // Get API key based on provider
     let apiKeyToUse: string | undefined
@@ -98,10 +99,15 @@ export async function POST(request: Request) {
 
     // Load tools first (before building system message)
     const invocationOptions = mapsApiKey
-      ? { googleMapsApiKey: mapsApiKey }
+      ? { googleMapsApiKey: mapsApiKey, googleMapsProjectId: mapsProjectId }
       : undefined
     if (mapsApiKey) {
       console.log(`[API Messages] Maps API key provided (length: ${mapsApiKey.length}, preview: ${mapsApiKey.substring(0, 10)}...)`)
+      if (mapsProjectId) {
+        console.log(`[API Messages] Maps Project ID provided: ${mapsProjectId}`)
+      } else {
+        console.log(`[API Messages] No Maps Project ID provided - will use API key's default project`)
+      }
     } else {
       console.log(`[API Messages] No Maps API key provided - will use env var if available`)
     }

@@ -26,6 +26,7 @@ export function ApiKeysSettings({ open, onOpenChange }: ApiKeysSettingsProps) {
   const [anthropicKey, setAnthropicKey] = React.useState("")
   const [geminiKey, setGeminiKey] = React.useState("")
   const [googleMapsKey, setGoogleMapsKey] = React.useState("")
+  const [googleMapsProjectId, setGoogleMapsProjectId] = React.useState("")
   const [showOpenaiKey, setShowOpenaiKey] = React.useState(false)
   const [showAnthropicKey, setShowAnthropicKey] = React.useState(false)
   const [showGeminiKey, setShowGeminiKey] = React.useState(false)
@@ -79,12 +80,14 @@ export function ApiKeysSettings({ open, onOpenChange }: ApiKeysSettingsProps) {
       const savedAnthropicKey = localStorage.getItem("anthropic_api_key") || ""
       const savedGeminiKey = localStorage.getItem("gemini_api_key") || ""
       const savedGoogleMapsKey = localStorage.getItem("google_maps_api_key") || ""
+      const savedGoogleMapsProjectId = localStorage.getItem("google_maps_project_id") || ""
       setOpenaiKey(savedOpenaiKey)
       setAnthropicKey(savedAnthropicKey)
       setGeminiKey(savedGeminiKey)
       // Clean the Google Maps key when loading (in case it was saved incorrectly)
       const cleanedMapsKey = savedGoogleMapsKey ? extractApiKey(savedGoogleMapsKey) : ""
       setGoogleMapsKey(cleanedMapsKey)
+      setGoogleMapsProjectId(savedGoogleMapsProjectId)
       // If we cleaned it and it's different, save the cleaned version back
       if (savedGoogleMapsKey && cleanedMapsKey && cleanedMapsKey !== savedGoogleMapsKey && cleanedMapsKey.startsWith("AIza")) {
         localStorage.setItem("google_maps_api_key", cleanedMapsKey)
@@ -192,6 +195,12 @@ export function ApiKeysSettings({ open, onOpenChange }: ApiKeysSettingsProps) {
       }
     } else {
       localStorage.removeItem("google_maps_api_key")
+    }
+    // Save Project ID (optional but recommended)
+    if (googleMapsProjectId.trim()) {
+      localStorage.setItem("google_maps_project_id", googleMapsProjectId.trim())
+    } else {
+      localStorage.removeItem("google_maps_project_id")
     }
     setSaved(true)
     setTimeout(() => {
@@ -468,6 +477,24 @@ export function ApiKeysSettings({ open, onOpenChange }: ApiKeysSettingsProps) {
                 Maps Grounding Lite API
               </a>
               {" "}is enabled for your Google Cloud project.
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="google-maps-project-id">Google Maps Project ID (Optional)</Label>
+            <Input
+              id="google-maps-project-id"
+              type="text"
+              value={googleMapsProjectId}
+              onChange={(e) => setGoogleMapsProjectId(e.target.value)}
+              placeholder="project-nexus-483122"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              Your Google Cloud Project ID (e.g., <code className="bg-muted px-1 rounded">project-nexus-483122</code>). 
+              This is required for billing attribution. If not provided, the API key's default project will be used.
+              <br />
+              <strong>Note:</strong> This is the Project ID (string), not the Project Number (numeric).
             </p>
           </div>
         </div>

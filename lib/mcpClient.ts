@@ -435,13 +435,20 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
     throw new Error("HTTP transport requires a target URL")
   }
 
+  // Log headers being sent (for debugging - especially X-Goog-User-Project)
+  const headersToSend: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+    ...config.headers,
+  }
+  const hasApiKey = !!(headersToSend["X-Goog-Api-Key"] || headersToSend["x-goog-api-key"])
+  const projectIdValue = headersToSend["X-Goog-User-Project"] || headersToSend["x-goog-user-project"]
+  const hasProjectId = !!projectIdValue
+  console.log(`[MCP Client] Headers being sent: X-Goog-Api-Key: ${hasApiKey ? 'PRESENT' : 'MISSING'}, X-Goog-User-Project: ${hasProjectId ? projectIdValue : 'MISSING'}`)
+  
   const response = await fetch(config.url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "text/event-stream",
-      ...config.headers,
-    },
+    headers: headersToSend,
     body: JSON.stringify(payload),
   })
 

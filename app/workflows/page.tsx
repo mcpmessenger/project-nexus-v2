@@ -580,8 +580,14 @@ export default function WorkflowsPage() {
         }
       }
       let mapsApiKey: string | null = null
+      let mapsProjectId: string | null = null
       if (typeof window !== "undefined") {
         const storedMapsKey = localStorage.getItem("google_maps_api_key")
+        const storedMapsProjectId = localStorage.getItem("google_maps_project_id")
+        if (storedMapsProjectId) {
+          mapsProjectId = storedMapsProjectId.trim()
+          console.log(`[Workflows] Using Maps Project ID from localStorage: ${mapsProjectId}`)
+        }
         if (storedMapsKey) {
           // Extract API key from various formats (curl command, header, etc.)
           let cleanedKey = storedMapsKey.trim()
@@ -634,6 +640,7 @@ export default function WorkflowsPage() {
           provider: chatProvider,
           apiKey: userApiKey,
           mapsApiKey,
+          mapsProjectId,
         }),
       })
 
