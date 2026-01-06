@@ -1,10 +1,24 @@
 # Bug Bounty: Google Maps Grounding Lite API Integration Issues
 
+## 🎯 Executive Summary
+
+**Status**: ⚠️ **PARTIALLY RESOLVED** - Curl works, app integration still failing
+
+**Key Finding**: Direct curl requests with `X-Goog-User-Project` header **WORK PERFECTLY**, proving:
+- ✅ API key is valid
+- ✅ Project and billing are correctly configured  
+- ✅ The endpoint is functional
+- ❌ **App integration has a different issue** - likely response format handling or result extraction
+
+**Root Cause**: Not a configuration issue - it's a **code integration issue** with how the app processes the Maps API response format.
+
 ## Problem Summary
-The `/maps` command consistently fails with a 403 error indicating the Maps Grounding Lite API is not enabled, despite:
-- API being enabled in Google Cloud Console
-- Valid API keys being provided
-- Multiple attempts to fix project/key mismatches
+The `/maps` command in the app fails even though:
+- ✅ Direct curl requests work perfectly
+- ✅ API being enabled in Google Cloud Console
+- ✅ Valid API keys being provided
+- ✅ Project and billing correctly configured
+- ❌ App receives successful API responses but result extraction fails
 
 ## 🔍 The "Smoking Gun" Evidence
 **The fact that `tools/list` works while `tools/call` fails is the critical evidence:**
@@ -88,21 +102,59 @@ Enable it by running gCloud command: `gcloud beta services mcp enable mapstools.
 - **What**: Attempted to identify correct project for keys
 - **Result**: ❌ Unable to determine project name for numeric ID 427937751674
 
-## Current State
+## Current State (Updated: 2026-01-06)
 
-### What Works
-- ✅ API key extraction from various formats (curl, headers, plain text)
-- ✅ Typo detection and auto-correction (`Alza` → `AIza`)
-- ✅ Key passing from frontend to backend
-- ✅ `tools/list` API call succeeds (returns 3 tools)
-- ✅ Error messages are user-friendly
+### ✅ What Works (Curl Test - PROVEN)
+**Direct curl command with X-Goog-User-Project header WORKS:**
+```bash
+curl -X POST https://mapstools.googleapis.com/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "X-Goog-Api-Key: AIzaSyDmoe3wnkalTh2b9i7mhvu6nUb4AJU" \
+  -H "X-Goog-User-Project: project-nexus-483122" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "list-tools",
+    "method": "tools/list",
+    "params": {}
+  }'
+```
+**Result**: ✅ Successfully returns 3 tools: `search_places`, `lookup_weather`, `compute_routes`
 
-### What Doesn't Work
-- ❌ `tools/call` API calls fail with 403
-- ❌ Project ID mismatch (keys in 427937751674, API enabled in project-nexus-483122)
-- ❌ Unable to create key in correct project
-- ❌ Billing page fails to load
-- ❌ MCP policy enablement unclear
+**This proves:**
+- ✅ API key is valid
+- ✅ Project and billing are correctly configured
+- ✅ Network connectivity works
+- ✅ The endpoint is reachable and functional
+
+### ❌ What Doesn't Work (App Integration)
+- ❌ App's `tools/call` requests fail with various errors
+- ❌ Result parsing returns `null` even when API responds successfully
+- ❌ Multiple `substring()` errors on undefined values (fixed in code but may persist)
+- ❌ Response format mismatch - Maps API returns data in `result.content[0].text` as JSON string
+
+### 🔧 Code Fixes Applied (maps-bug branch)
+1. ✅ Added `X-Goog-User-Project` header support (optional, uses API key's default project)
+2. ✅ Fixed response body double-read issue (read as text first, then parse JSON)
+3. ✅ Fixed all `substring()` calls on potentially undefined values
+4. ✅ Added parsing for Maps API response format (`result.content[0].text`)
+5. ✅ Improved error handling and logging throughout
+6. ✅ Made project ID optional (uses API key's default project if not specified)
+
+### 🐛 Current App Behavior
+**When calling `maps_search_places`:**
+1. ✅ API call succeeds (200 response, ~9500 bytes of data)
+2. ✅ JSON parsing succeeds
+3. ❌ Result extraction returns `null` 
+4. ❌ Error: "Cannot read properties of undefined (reading 'substring')" in result processing
+
+**Logs show:**
+```
+[MCP Client] Maps API response body length: 9576, preview: {"id":"mcp-...","jsonrpc":"2.0","result":{"content":[{"text":"{\n...
+[MCP Client] Successfully parsed JSON response
+[API] Tool maps_search_places returned: null
+[API] Error parsing tool result from maps_search_places: TypeError: Cannot read properties of undefined (reading 'substring')
+```
 
 ## Technical Details
 
@@ -135,11 +187,12 @@ Enable it by running gCloud command: `gcloud beta services mcp enable mapstools.
 ### Response (Error)
 - Returns JSON with `result.isError: true` and error message in `result.content[0].text`
 
-## Files Modified During Debugging
+## Files Modified During Debugging (maps-bug branch)
 
+### Phase 1: Initial Fixes
 1. `components/settings-keys.tsx`
    - Added key extraction and validation
-   - Added typo detection
+   - Added typo detection (`Alza` → `AIza`)
    - Added Test button
 
 2. `app/workflows/page.tsx`
@@ -157,6 +210,39 @@ Enable it by running gCloud command: `gcloud beta services mcp enable mapstools.
 5. `app/api/messages/route.ts`
    - Added mapsApiKey to request body
    - Passed key to tool invocation
+
+### Phase 2: X-Goog-User-Project Header Support
+6. `lib/mcpClient.ts` (updated)
+   - Added `X-Goog-User-Project` header support
+   - Made project ID optional (uses API key's default project)
+   - Added environment variable support: `GOOGLE_MAPS_GROUNDING_USER_PROJECT`
+
+### Phase 3: Response Handling Fixes
+7. `lib/mcpClient.ts` (updated)
+   - Fixed response body double-read issue (read as text first, then parse JSON)
+   - Added parsing for Maps API response format (`result.content[0].text` contains JSON string)
+   - Added comprehensive error handling for JSON parsing
+   - Added logging for response body length and preview
+   - Fixed all `substring()` calls on potentially undefined values
+
+8. `app/api/messages/route.ts` (updated)
+   - Fixed all `substring()` calls in error handling
+   - Fixed `JSON.stringify().substring()` calls with try-catch
+   - Added safety checks for `error.stack` before calling substring
+   - Improved result stringification with error handling
+
+### Commits in maps-bug branch:
+- `f36efb0` - Save current work
+- `9c90546` - Add user project header for Maps
+- `51eb11b` - Add default project ID fallback for Maps Grounding API
+- `def41af` - Make X-Goog-User-Project optional - use API key's default project
+- `4ab0592` - Fix undefined substring error in Maps API response handling
+- `d0fc90b` - Fix response body double-read issue - read as text first then parse JSON
+- `c9c7e6d` - Add more defensive error handling for response body parsing
+- `37c1714` - Add logging and fix substring call in logging statement
+- `1b5b824` - Fix substring calls in API route error handling and logging
+- `d5e6ee4` - Fix all substring calls in tool result parsing and logging
+- `d010122` - Parse Maps API response content from text field and fix result extraction
 
 ## Recommended Solutions
 
@@ -236,22 +322,57 @@ gcloud projects list --filter="projectNumber=427937751674"
 
 ## Testing Performed
 
-### curl Tests
-```bash
-# tools/list - ✅ Works
-curl -X POST "https://mapstools.googleapis.com/mcp" \
-  -H "Content-Type: application/json" \
-  -H "Accept: text/event-stream" \
-  -H "X-Goog-Api-Key: AIzaSy..." \
-  -d '{"jsonrpc":"2.0","id":"test","method":"tools/list","params":{}}'
+### ✅ Successful curl Tests (2026-01-06)
 
-# tools/call - ❌ Fails with 403
-curl -X POST "https://mapstools.googleapis.com/mcp" \
+**Test 1: tools/list - ✅ WORKS**
+```bash
+curl -X POST https://mapstools.googleapis.com/mcp \
   -H "Content-Type: application/json" \
-  -H "Accept: text/event-stream" \
-  -H "X-Goog-Api-Key: AIzaSy..." \
-  -d '{"jsonrpc":"2.0","id":"test","method":"tools/call","params":{"name":"search_places","arguments":{"textQuery":"barber in des moines"}}}'
+  -H "Accept: application/json" \
+  -H "X-Goog-Api-Key: AIzaSyDmoe3wnkalTh2b9i7mhvu6nUb4AJU" \
+  -H "X-Goog-User-Project: project-nexus-483122" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "list-tools",
+    "method": "tools/list",
+    "params": {}
+  }'
 ```
+**Result**: ✅ Returns 3 tools successfully
+
+**Test 2: tools/call with X-Goog-User-Project - ✅ WORKS**
+```bash
+curl -X POST https://mapstools.googleapis.com/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -H "X-Goog-Api-Key: AIzaSyDmoe3wnkalTh2b9i7mhvu6nUb4AJU" \
+  -H "X-Goog-User-Project: project-nexus-483122" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "test",
+    "method": "tools/call",
+    "params": {
+      "name": "search_places",
+      "arguments": {
+        "textQuery": "barber in des moines"
+      }
+    }
+  }'
+```
+**Result**: ✅ Returns ~9500 bytes of JSON with place data
+
+**Key Finding**: The `X-Goog-User-Project` header is **critical** - without it, requests fail. With it, everything works in curl.
+
+### ❌ App Integration Tests
+
+**App Request (via Next.js API route):**
+- Same API key
+- Same endpoint
+- Same payload structure
+- **Difference**: App uses `Accept: text/event-stream` (for SSE)
+- **Result**: API responds successfully but result is null
+
+**Hypothesis**: The `Accept: text/event-stream` header may cause Maps API to return a different response format, or the SSE parsing logic may be interfering with JSON response handling.
 
 ## Known Issues
 
@@ -281,14 +402,74 @@ curl -X POST "https://mapstools.googleapis.com/mcp" \
 - **Deployment**: Local development (localhost:3000)
 - **API Keys Tested**: 2 different keys, both from project 427937751674
 
+## 🔬 Deep Research Needed
+
+### Critical Questions to Answer
+
+1. **Why does curl work but the app doesn't?**
+   - Curl with `X-Goog-User-Project: project-nexus-483122` works perfectly
+   - App makes identical requests but gets different results
+   - Need to compare: exact headers, exact payload, exact response
+
+2. **Response Format Mismatch**
+   - Maps API returns: `{"result": {"content": [{"text": "{\"places\":[...]}"}]}}`
+   - The `text` field contains a JSON string, not a JSON object
+   - Current code tries to parse this but may be failing silently
+   - Need to verify: Is the parsing working? Why is result null?
+
+3. **Result Extraction Logic**
+   - Code path: `mcpClient.ts` → `tools-helper.ts` → `messages/route.ts`
+   - Where exactly is the result being lost?
+   - Is it a serialization issue? A type conversion issue?
+
+4. **Substring Errors**
+   - Fixed in code but errors persist in compiled Next.js chunks
+   - May need to clear `.next` cache and rebuild
+   - Or there may be other locations calling substring
+
+5. **Request Headers Comparison**
+   - Curl uses: `Accept: application/json`
+   - App uses: `Accept: text/event-stream` (for SSE transport)
+   - Does this cause different response formats?
+   - Should we force JSON mode for Maps API?
+
+### Investigation Checklist
+
+- [ ] Compare exact request headers between curl and app (use network tab)
+- [ ] Compare exact request payloads (ensure they're identical)
+- [ ] Compare exact response bodies (are they the same format?)
+- [ ] Test with `Accept: application/json` instead of `text/event-stream`
+- [ ] Verify result extraction logic step-by-step with logging
+- [ ] Check if Next.js is caching old compiled code
+- [ ] Test with fresh `.next` directory (delete and rebuild)
+- [ ] Verify the JSON string in `result.content[0].text` is being parsed correctly
+- [ ] Check if there's a difference between development and production builds
+
+### Files to Investigate
+
+1. **lib/mcpClient.ts** (lines 498-550)
+   - Response parsing logic
+   - Result extraction from `result.content[0].text`
+   - SSE vs JSON response handling
+
+2. **lib/tools-helper.ts** (lines 750-785)
+   - Tool invocation and result handling
+   - How results are passed back to API route
+
+3. **app/api/messages/route.ts** (lines 407-442)
+   - Tool result processing
+   - JSON stringification and error handling
+
 ## Next Steps
 
 1. ✅ Document all issues (this file)
-2. ⏳ Enable API in correct project (427937751674)
-3. ⏳ Enable billing in correct project
-4. ⏳ Test `/maps` command
-5. ⏳ Add project verification to UI
-6. ⏳ Add billing status check
+2. ✅ Code fixes applied (maps-bug branch)
+3. ⏳ **DEEP RESEARCH**: Compare curl vs app requests/responses
+4. ⏳ **DEEP RESEARCH**: Fix result extraction logic
+5. ⏳ **DEEP RESEARCH**: Verify response format handling
+6. ⏳ Test `/maps` command end-to-end
+7. ⏳ Add project verification to UI
+8. ⏳ Add billing status check
 
 ## Reward Criteria
 
