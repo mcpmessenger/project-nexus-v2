@@ -581,7 +581,12 @@ export default function WorkflowsPage() {
       }
       let mapsApiKey: string | null = null
       let mapsProjectId: string | null = null
+      let notionApiKey: string | null = null
+      let githubToken: string | null = null
+      let exaApiKey: string | null = null
+      
       if (typeof window !== "undefined") {
+        // Load Maps API key
         const storedMapsKey = localStorage.getItem("google_maps_api_key")
         const storedMapsProjectId = localStorage.getItem("google_maps_project_id")
         if (storedMapsProjectId) {
@@ -628,6 +633,27 @@ export default function WorkflowsPage() {
             console.warn(`[Workflows] Invalid Maps API key format in localStorage. Key should start with "AIza"`)
           }
         }
+        
+        // Load Notion API key
+        const storedNotionKey = localStorage.getItem("notion_api_key")
+        if (storedNotionKey) {
+          notionApiKey = storedNotionKey.trim()
+          console.log(`[Workflows] Using Notion API key from localStorage (length: ${notionApiKey.length})`)
+        }
+        
+        // Load GitHub token
+        const storedGitHubToken = localStorage.getItem("github_personal_access_token")
+        if (storedGitHubToken) {
+          githubToken = storedGitHubToken.trim()
+          console.log(`[Workflows] Using GitHub token from localStorage (length: ${githubToken.length})`)
+        }
+        
+        // Load Exa API key
+        const storedExaKey = localStorage.getItem("exa_api_key")
+        if (storedExaKey) {
+          exaApiKey = storedExaKey.trim()
+          console.log(`[Workflows] Using Exa API key from localStorage (length: ${exaApiKey.length})`)
+        }
       }
 
       // Call the API
@@ -641,6 +667,9 @@ export default function WorkflowsPage() {
           apiKey: userApiKey,
           mapsApiKey,
           mapsProjectId,
+          notionApiKey,
+          githubToken,
+          exaApiKey,
         }),
       })
 

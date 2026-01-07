@@ -52,6 +52,8 @@ export async function GET() {
           transport: transport as "http" | "stdio",
           rateLimit: server.rate_limit_per_minute || 60,
           description,
+          config: config, // Include full config for tool fetching
+          url: config.url, // Include URL for convenience
         }
       })
     } else if (error) {

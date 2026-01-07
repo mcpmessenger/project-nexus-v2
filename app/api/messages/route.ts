@@ -24,6 +24,9 @@ export async function POST(request: Request) {
     const { content, imageUrl, provider = "openai", apiKey } = body
     const mapsApiKey = body.mapsApiKey?.trim() || null
     const mapsProjectId = body.mapsProjectId?.trim() || null
+    const notionApiKey = body.notionApiKey?.trim() || null
+    const githubToken = body.githubToken?.trim() || null
+    const exaApiKey = body.exaApiKey?.trim() || null
     
     // Debug logging for Maps API key and Project ID
     console.log(`[API Messages] Request body keys: ${Object.keys(body).join(', ')}`)
@@ -103,9 +106,21 @@ export async function POST(request: Request) {
     }
 
     // Load tools first (before building system message)
-    const invocationOptions = mapsApiKey
-      ? { googleMapsApiKey: mapsApiKey, googleMapsProjectId: mapsProjectId }
-      : undefined
+    const invocationOptions: any = {}
+    if (mapsApiKey) {
+      invocationOptions.googleMapsApiKey = mapsApiKey
+      invocationOptions.googleMapsProjectId = mapsProjectId
+    }
+    if (notionApiKey) {
+      invocationOptions.notionApiKey = notionApiKey
+    }
+    if (githubToken) {
+      invocationOptions.githubToken = githubToken
+    }
+    if (exaApiKey) {
+      invocationOptions.exaApiKey = exaApiKey
+    }
+    const hasOptions = Object.keys(invocationOptions).length > 0
     if (mapsApiKey) {
       console.log(`[API Messages] Maps API key provided (length: ${mapsApiKey.length}, preview: ${mapsApiKey.substring(0, 10)}...)`)
       if (mapsProjectId) {
@@ -116,9 +131,18 @@ export async function POST(request: Request) {
     } else {
       console.log(`[API Messages] No Maps API key provided - will use env var if available`)
     }
+    if (notionApiKey) {
+      console.log(`[API Messages] Notion API key provided (length: ${notionApiKey.length})`)
+    }
+    if (githubToken) {
+      console.log(`[API Messages] GitHub token provided (length: ${githubToken.length})`)
+    }
+    if (exaApiKey) {
+      console.log(`[API Messages] Exa API key provided (length: ${exaApiKey.length})`)
+    }
     let tools: OpenAI.Chat.Completions.ChatCompletionTool[] = []
     try {
-      tools = await getAvailableToolsAsOpenAIFunctions(invocationOptions)
+      tools = await getAvailableToolsAsOpenAIFunctions(hasOptions ? invocationOptions : undefined)
       console.log(`[API Messages] Loaded ${tools.length} tools for function calling`)
     } catch (error) {
       console.error("[API] Error loading tools:", error)

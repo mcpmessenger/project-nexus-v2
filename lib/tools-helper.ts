@@ -80,7 +80,7 @@ const GOOGLE_GROUNDING_ID = "google-maps-grounding"
 /**
  * Apply server-specific config transformations (similar to registry.ts)
  */
-function applyServerConfig(serverId: string, config: McpRouteConfigInput): McpRouteConfigInput {
+function applyServerConfig(serverId: string, config: McpRouteConfigInput, options?: InvokeToolOptions): McpRouteConfigInput {
   if (serverId === 'maps' || serverId === GOOGLE_GROUNDING_ID) {
     const existingHeader =
       config.headers?.['X-Goog-Api-Key'] ?? config.headers?.['x-goog-api-key']
@@ -109,9 +109,10 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput): McpRo
   
   if (serverId === 'exa') {
     // Exa Search MCP server uses HTTP transport with x-api-key header
-    const apiKey = process.env.EXA_API_KEY
+    // Prefer user-provided API key from options, then env var
+    const apiKey = options?.exaApiKey || process.env.EXA_API_KEY
     if (!apiKey) {
-      console.warn(`[Tools Helper] Warning: EXA_API_KEY environment variable not set. Exa Search tools will not work without an API key.`)
+      console.warn(`[Tools Helper] Warning: EXA_API_KEY not provided. Exa Search tools will not work without an API key.`)
     }
     if (apiKey && config.transport === 'http') {
       return {
@@ -147,7 +148,8 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput): McpRo
     // 1. Binary: github-mcp-server (if installed globally or in PATH)
     // 2. Docker: ghcr.io/github/github-mcp-server
     // 3. npx: @modelcontextprotocol/server-github (if available as npm package)
-    const apiKey = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN
+    // Prefer user-provided token from options, then env var
+    const apiKey = options?.githubToken || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN
     if (!apiKey) {
       console.warn(`[Tools Helper] Warning: GITHUB_PERSONAL_ACCESS_TOKEN environment variable not set. GitHub tools will not work without a token.`)
       // Try to use npx first, fallback to binary name
@@ -168,6 +170,32 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput): McpRo
       env: {
         ...(config.env || {}),
         GITHUB_PERSONAL_ACCESS_TOKEN: apiKey,
+      },
+    }
+  }
+  
+  if (serverId === 'notion') {
+    // Notion MCP server uses stdio transport
+    // The MCP server requires NOTION_API_KEY as an environment variable
+    // Prefer user-provided API key from options, then env var
+    const apiKey = options?.notionApiKey || process.env.NOTION_API_KEY
+    if (!apiKey) {
+      console.warn(`[Tools Helper] Warning: NOTION_API_KEY not provided. Notion tools will not work without an API key.`)
+      return {
+        ...config,
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@notionhq/notion-mcp-server'],
+      }
+    }
+    return {
+      ...config,
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@notionhq/notion-mcp-server'],
+      env: {
+        ...(config.env || {}),
+        NOTION_API_KEY: apiKey,
       },
     }
   }
@@ -565,6 +593,9 @@ function enhancePlaywrightNavigationArgs(toolName: string, args: Record<string, 
 interface InvokeToolOptions {
   googleMapsApiKey?: string | null
   googleMapsProjectId?: string | null
+  notionApiKey?: string | null
+  githubToken?: string | null
+  exaApiKey?: string | null
 }
 
 export async function invokeToolByName(
@@ -631,7 +662,7 @@ export async function invokeToolByName(
   }
   
   // Apply server-specific config transformations
-  config = applyServerConfig(server.id, config)
+  config = applyServerConfig(server.id, config, options)
   
   // Ensure user-provided key and project ID are still set (applyServerConfig might have overwritten them)
   if (
