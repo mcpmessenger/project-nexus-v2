@@ -36,12 +36,28 @@ Project Nexus v2 is an enterprise-grade workflow orchestration platform that tra
 
 Project Nexus v2 includes support for the following MCP servers:
 
+### Core Integration Servers
 - **✅ Exa Search**: Live web search using Exa MCP API (HTTP transport)
 - **✅ Google Maps Grounding**: Location search and mapping services (HTTP transport)
 - **✅ Playwright**: Browser automation and web scraping (stdio transport with headless mode)
-- **GitHub**: GitHub repository and code management (HTTP transport)
+- **✅ GitHub**: GitHub repository and code management (stdio transport)
+- **✅ LangChain Agent**: Multi-step reasoning and tool orchestration via LangChain ReAct agents (HTTP transport)
+
+### Productivity & Automation Servers
+- **✅ Google Workspace**: Comprehensive GSuite integration (Gmail, Drive, Calendar, Docs, Sheets, Slides, Forms, Tasks, Chat) via stdio transport
+- **✅ Notion**: Notion workspace management, page search, database operations, and knowledge organization (stdio transport)
+- **✅ n8n Automation**: Visual workflow building, triggers, and integrations with thousands of services (stdio transport)
+
+### AI Reasoning Servers
+- **✅ Sequential Thinking**: Chain-of-thought reasoning and structured problem-solving for AI agents (stdio transport)
 
 All system servers are pre-configured and can be enabled/disabled through the monitoring dashboard. Custom MCP servers can be added via the server management interface.
+
+**Note**: Some servers require environment variables for authentication:
+- **Google Workspace**: `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`
+- **Notion**: `NOTION_API_KEY`
+- **GitHub**: GitHub Personal Access Token (via settings or environment variable)
+- **Google Maps**: `GOOGLE_MAPS_GROUNDING_API_KEY`
 
 ## Tech Stack
 

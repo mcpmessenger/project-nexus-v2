@@ -3,58 +3,64 @@ import { getAuthenticatedUser, getSupabaseClient } from "@/lib/get-user-session"
 
 // Get servers endpoint - fetches from Supabase when authenticated, returns empty user servers when not
 export async function GET() {
-  const systemServers = [
-    {
-      id: "exa",
-      name: "Exa Search",
-      type: "system" as const,
-      enabled: true,
-      logoUrl: "/images/exa-color.png",
-      transport: "http" as const,
-      rateLimit: 60,
-      description: "Exa AI-powered live web search and deep research tools",
-    },
-    {
-      id: "maps",
-      name: "Google Maps Grounding",
-      type: "system" as const,
-      enabled: true,
-      logoUrl: "/images/Google_Maps_icon_(2020).svg",
-      transport: "http" as const,
-      rateLimit: 100,
-      description: "Location search and mapping services",
-    },
-    {
-      id: "playwright",
-      name: "Playwright",
-      type: "system" as const,
-      enabled: true,
-      logoUrl: "/images/playwright.png",
-      transport: "stdio" as const,
-      rateLimit: 10,
-      description: "Browser automation and web scraping using Playwright MCP",
-    },
-    {
-      id: "github",
-      name: "GitHub",
-      type: "system" as const,
-      enabled: true,
-      logoUrl: "/images/Octicons-mark-github.svg.png",
-      transport: "stdio" as const,
-      rateLimit: 60,
-      description: "GitHub repository and code management via official GitHub MCP server",
-    },
-    {
-      id: "langchain",
-      name: "LangChain Agent",
-      type: "system" as const,
-      enabled: true,
-      logoUrl: "/images/mcpwhtbggd.png", // Use MCP logo as fallback
-      transport: "http" as const,
-      rateLimit: 60,
-      description: "LangChain agent executor with multi-step reasoning and tool execution",
-    },
-  ]
+  // Fetch system servers from database
+  let systemServers: any[] = []
+  try {
+    const supabase = await getSupabaseClient()
+    const { data, error } = await supabase
+      .from("system_servers")
+      .select("id, name, config, enabled, rate_limit_per_minute, logo_url")
+      .eq("enabled", true)
+      .order("name", { ascending: true })
+    
+    if (!error && data) {
+      systemServers = data.map((server: any) => {
+        // Extract transport from config
+        const config = typeof server.config === 'string' 
+          ? JSON.parse(server.config) 
+          : server.config
+        const transport = config.transport || "http"
+        
+        // Generate description based on server name/type
+        let description = `MCP server: ${server.name}`
+        if (server.id === "exa") {
+          description = "Exa AI-powered live web search and deep research tools"
+        } else if (server.id === "maps") {
+          description = "Location search and mapping services"
+        } else if (server.id === "playwright") {
+          description = "Browser automation and web scraping using Playwright MCP"
+        } else if (server.id === "github") {
+          description = "GitHub repository and code management via official GitHub MCP server"
+        } else if (server.id === "langchain") {
+          description = "LangChain agent executor with multi-step reasoning and tool execution"
+        } else if (server.id === "google-workspace") {
+          description = "Google Workspace integration (Gmail, Drive, Calendar, Docs, Sheets, Slides, Forms, Tasks, Chat)"
+        } else if (server.id === "sequential-thinking") {
+          description = "Chain-of-thought reasoning and structured problem-solving for AI agents"
+        } else if (server.id === "notion") {
+          description = "Notion workspace management, page search, database operations, and knowledge organization"
+        } else if (server.id === "n8n") {
+          description = "Visual workflow building, triggers, and integrations with thousands of services"
+        }
+        
+        return {
+          id: server.id,
+          name: server.name,
+          type: "system" as const,
+          enabled: server.enabled,
+          logoUrl: server.logo_url || "/images/mcpwhtbggd.png", // Fallback to MCP logo
+          transport: transport as "http" | "stdio",
+          rateLimit: server.rate_limit_per_minute || 60,
+          description,
+        }
+      })
+    } else if (error) {
+      console.error("[API Servers] Error fetching system servers:", error)
+    }
+  } catch (error) {
+    console.error("[API Servers] Error fetching system servers:", error)
+    // Fallback to empty array on error
+  }
 
   // Fetch user servers from Supabase if authenticated
   let userServers: any[] = []

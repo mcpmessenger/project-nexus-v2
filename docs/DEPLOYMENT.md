@@ -9,22 +9,39 @@
 
 | Variable | Needed by | Description | Notes |
 | --- | --- | --- | --- |
-| `OPENAI_API_KEY` | `app/api/messages/route.ts` | Powers the OpenAI chat completions requests for workflows. Missing this key causes `/api/messages` to throw a 500 error (the UI surfaces the “API key is not configured” banner). | Store as a Vercel secret and mark it as `Environment Variable` for production. |
+| `OPENAI_API_KEY` | `app/api/messages/route.ts` | Powers the OpenAI chat completions requests for workflows. Missing this key causes `/api/messages` to throw a 500 error (the UI surfaces the "API key is not configured" banner). | Store as a Vercel secret and mark it as `Environment Variable` for production. |
 | `EXA_API_KEY` | `lib/tools-helper.ts` | Exa Search MCP server uses this key (added as an Authorization header when available). | Optional — credentials can also be supplied via the Add Server dialog (query string or header). |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` / `GITHUB_TOKEN` | `lib/tools-helper.ts`, `supabase/functions/nexus-hub/servers/github.ts` | GitHub MCP server uses a PAT to list user repos and tools via stdio. | The frontend stores the PAT in localStorage when the user saves a server (see `app/monitoring/page.tsx`). |
 | `GOOGLE_MAPS_GROUNDING_API_KEY` | `lib/tools-helper.ts`, server registry | Google Maps grounding server injects `X-Goog-Api-Key` when `maps` or `google-maps-grounding` is active. | Needed for Maps and any downstream place/directions calls. |
-| `NEXT_PUBLIC_SUPABASE_URL` | `lib/supabase-client.ts`, `lib/get-user-session.ts` | Points the Supabase client at the project URL. | Copy the Supabase “Project URL” value from your Supabase project. |
+| `GOOGLE_OAUTH_CLIENT_ID` | `supabase/functions/nexus-hub/servers/google-workspace.ts` | Google Workspace MCP server OAuth2 client ID for GSuite integration. | Required for Google Workspace server. Get from Google Cloud Console. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | `supabase/functions/nexus-hub/servers/google-workspace.ts` | Google Workspace MCP server OAuth2 client secret. | Required for Google Workspace server. Get from Google Cloud Console. |
+| `NOTION_API_KEY` | `supabase/functions/nexus-hub/servers/notion.ts` | Notion MCP server API key for workspace access. | Required for Notion server. Get from https://www.notion.so/my-integrations |
+| `NEXT_PUBLIC_SUPABASE_URL` | `lib/supabase-client.ts`, `lib/get-user-session.ts` | Points the Supabase client at the project URL. | Copy the Supabase "Project URL" value from your Supabase project. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Same as above | The public anon key for Supabase authentication. | Use the value from your Supabase settings. |
 > Optional: Supabase Edge functions (e.g., `nexus-hub`) run on Deno and often reference additional environment variables (`SUPABASE_SERVICE_ROLE_KEY`, vault secrets for encrypted configs). Keep those in sync with the Supabase project, because the Next.js API routes rely on `getSupabaseClient` to forward authenticated requests.
 ## 3. System services verification
-The front-end ships five system MCP servers with known transports. Keep this table in sync with `app/api/servers/route.ts`, `lib/tools-helper.ts`, and `supabase/functions/nexus-hub/servers/{gMaps,github,playwright,registry}.ts`.
+The front-end ships nine system MCP servers with known transports. Keep this table in sync with `app/api/servers/route.ts`, `lib/tools-helper.ts`, and `supabase/functions/nexus-hub/servers/{maps,github,playwright,google-workspace,notion,registry}.ts`.
+
+### Core Integration Servers
 | Service | Transport | Verification path | Key requirements |
 | --- | --- | --- | --- |
 | Exa Search | http (`https://mcp.exa.ai/mcp`) | `POST /api/mcp` `{ action: "list_tools", config: { id: "exa", transport: "http", url: "https://mcp.exa.ai/mcp", headers: { "Accept": "application/json" } } }` | `exaApiKey` can be added via query (`?exaApiKey=KEY`) or passed in headers; reference https://docs.exa.ai/reference/exa-mcp for credential setup. |
 | Google Maps Grounding Lite | http (X-Goog-Api-Key header) | Same `/api/mcp` call with `config.transport = "http"` and `config.url = "https://mapstools.googleapis.com/mcp"`. | `GOOGLE_MAPS_GROUNDING_API_KEY`. |
 | Playwright | stdio (`npx @playwright/mcp@latest --headless --isolated`) | `/api/mcp` health/list_tools described in `app/monitoring/page.tsx` – the dialog uses this flow to validate the server. | No API key, but headless browsers require extra CPU (Vercel + Playwright may not run in production; supply your own server). |
-| GitHub MCP | stdio (GitHub MCP server binary or npx package) | The `Add Server` dialog saves the PAT in localStorage and the backend uses it when invoking GitHub tools. | `GITHUB_PERSONAL_ACCESS_TOKEN`/`GITHUB_TOKEN`. |
+| GitHub MCP | stdio (`npx -y @modelcontextprotocol/server-github`) | The `Add Server` dialog saves the PAT in localStorage and the backend uses it when invoking GitHub tools. | `GITHUB_PERSONAL_ACCESS_TOKEN`/`GITHUB_TOKEN`. |
 | LangChain Agent | http (https://langchain-agent-mcp-server-554655392699.us-central1.run.app) | Already published server. The registry lists the tool manifest via `mcp.listTools`. | Server-managed `OPENAI_API_KEY` or whichever key LangChain needs. |
+
+### Productivity & Automation Servers
+| Service | Transport | Verification path | Key requirements |
+| --- | --- | --- | --- |
+| Google Workspace | stdio (`uvx workspace-mcp --transport streamable-http`) | OAuth2-based authentication. Server requires OAuth credentials for GSuite services. | `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` environment variables. |
+| Notion | stdio (`npx -y @notionhq/notion-mcp-server`) | Notion API integration for workspace management. | `NOTION_API_KEY` environment variable. Get from https://www.notion.so/my-integrations |
+| n8n Automation | stdio (`npx -y n8n-mcp-server`) | Visual workflow automation server. May require n8n instance URL and API key. | Optional: n8n instance URL and API key if using remote n8n instance. |
+
+### AI Reasoning Servers
+| Service | Transport | Verification path | Key requirements |
+| --- | --- | --- | --- |
+| Sequential Thinking | stdio (`npx -y mcp-sequentialthinking-tools`) | Chain-of-thought reasoning for AI agents. | No API key required. |
 ### Testing advice
 1. Open the choreography UI (`/workflows`) and type `/exa test` + `#` for autocomplete to ensure Exa Search tools appear.
 2. Use the Add Server dialog (`/monitoring` > Add Server) to test `/api/mcp` health checks (the dialog pre-populates known URLs and handles API key hints).
@@ -33,5 +50,5 @@ The front-end ships five system MCP servers with known transports. Keep this tab
 ## 4. Deployment sanity checks
 - Confirm the Vercel build environment file mirrors your `.env.local` (at least the keys listed above). Missing keys cause `/api/messages` requests to 500, which breaks the chat experience even though the page renders.
 - Validate that Supabase credentials are reachable from Vercel via the `NEXT_PUBLIC` prefix; the UI relies on those to load system and user server lists.
-- Encourage the first section of the landing page to show “Add your API key in Settings” copy so the “Control Plane” narrative has a functional entry point.
+- Encourage the first section of the landing page to show "Add your API key in Settings" copy so the "Control Plane" narrative has a functional entry point.
 <REMOVE>

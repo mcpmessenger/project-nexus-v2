@@ -55,6 +55,10 @@ export default function LandingPage() {
       "Enterprise-Grade Security",
       "MCP Integration",
       "Real-Time Monitoring",
+      "Google Workspace Integration",
+      "Notion Workspace Management",
+      "n8n Automation Workflows",
+      "LangChain Agent Orchestration",
     ],
   }
 
@@ -64,6 +68,9 @@ export default function LandingPage() {
     { name: "Google Maps", icon: "/images/Google_Maps_icon_(2020).svg", serverId: "maps" },
     { name: "Exa Search", icon: "/images/exa-color.png", serverId: "exa" },
     { name: "Playwright", icon: "/images/playwright.png", serverId: "playwright" },
+    { name: "LangChain", icon: "/images/mcpwhtbggd.png", serverId: "langchain" },
+    { name: "Notion", icon: "/images/Notion-logo.svg.png", serverId: "notion" },
+    { name: "n8n", icon: "/images/N8n-logo-new.svg.png", serverId: "n8n" },
   ]
 
   return (
@@ -132,6 +139,7 @@ export default function LandingPage() {
                     ? `/monitoring?server=${server.serverId}`
                     : "/monitoring"
                   const isGitHub = server.serverId === "github"
+                  const isN8n = server.serverId === "n8n"
                   return (
                     <Link
                       key={`server-${i}`}
@@ -141,9 +149,9 @@ export default function LandingPage() {
                       <Image
                         src={server.icon}
                         alt={server.name}
-                        width={48}
-                        height={48}
-                        className={`h-12 w-12 object-contain opacity-100 hover:opacity-90 transition-opacity ${
+                        width={isN8n ? 80 : 48}
+                        height={isN8n ? 80 : 48}
+                        className={`${isN8n ? "h-20 w-20" : "h-12 w-12"} object-contain opacity-100 hover:opacity-90 transition-opacity ${
                           isGitHub ? "dark:brightness-0 dark:invert" : ""
                         }`}
                       />

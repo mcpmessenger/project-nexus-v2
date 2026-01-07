@@ -164,10 +164,20 @@ function RegistryPageContent() {
   }
 
   const getLogoUrl = (server: McpServer) => {
-    if (server.logoUrl) {
+    // If logoUrl exists and is not empty, use it
+    if (server.logoUrl && server.logoUrl.trim() !== "") {
+      // Handle both absolute URLs and relative paths
+      if (server.logoUrl.startsWith("http") || server.logoUrl.startsWith("/")) {
+        return server.logoUrl
+      }
+      // If it's a relative path without leading slash, add it
+      if (!server.logoUrl.startsWith("/")) {
+        return `/${server.logoUrl}`
+      }
       return server.logoUrl
     }
-    return "/images/mcpwhtbggd.png" // MCP logo fallback
+    // Fallback to MCP logo for servers without logos
+    return "/images/mcpwhtbggd.png"
   }
 
   const allServers = [...servers.system, ...servers.user]
@@ -187,9 +197,6 @@ function RegistryPageContent() {
           editingServer={editingServer}
         />
       </div>
-
-      {/* Worker Monitoring Section */}
-      <WorkerMonitoringSection />
 
       {/* MCP Servers */}
       <div className="space-y-6">
@@ -242,6 +249,9 @@ function RegistryPageContent() {
           </Card>
         )}
       </div>
+
+      {/* Worker Monitoring Section - Moved to bottom */}
+      <WorkerMonitoringSection />
     </div>
   )
 }
