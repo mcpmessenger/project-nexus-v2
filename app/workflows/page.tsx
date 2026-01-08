@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/components/auth-provider"
-import { Send, Image as ImageIcon, X, Loader2, Mic, ChevronDown } from "lucide-react"
+import { Send, Image as ImageIcon, X, Loader2, Mic, ChevronDown, Camera, Brain } from "lucide-react"
 import { HoverIconButton } from "@/components/ui/hover-icon-button"
 import {
   DropdownMenu,
@@ -15,6 +15,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { McpServerSidebar, type ServerStatus } from "@/components/mcp-server-sidebar"
+import { ToolExecutionStatus, type ToolExecution } from "@/components/tool-execution-status"
+import { CameraCapture } from "@/components/camera-capture"
+import { useServerHealth } from "@/lib/use-server-health"
 
 // TypeScript declarations for Web Speech API
 interface SpeechRecognition extends EventTarget {
@@ -86,12 +90,12 @@ interface Tool {
 // Client-side only timestamp component to avoid hydration errors
 function MessageTimestamp({ timestamp }: { timestamp: Date }) {
   const [formattedTime, setFormattedTime] = React.useState<string>("")
-  
+
   React.useEffect(() => {
     // Format timestamp only on client side
     setFormattedTime(timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }))
   }, [timestamp])
-  
+
   return <p className="mt-1.5 text-xs opacity-70">{formattedTime || ""}</p>
 }
 
@@ -132,6 +136,20 @@ export default function WorkflowsPage() {
   const [isLoadingTools, setIsLoadingTools] = React.useState(false)
   const [commandHistory, setCommandHistory] = React.useState<string[]>([])
   const [historyIndex, setHistoryIndex] = React.useState(-1)
+  const [sidebarOpen, setSidebarOpen] = React.useState(false)
+  const [showCamera, setShowCamera] = React.useState(false)
+  const [toolExecutions, setToolExecutions] = React.useState<ToolExecution[]>([])
+  const [hasInitialLoad, setHasInitialLoad] = React.useState(false)
+
+  // Use server health hook - only check when sidebar is open or on initial load
+  const { serverStatuses, refreshHealth } = useServerHealth(servers, sidebarOpen || !hasInitialLoad)
+
+  // Mark initial load as complete after first status check
+  React.useEffect(() => {
+    if (serverStatuses.length > 0 && !hasInitialLoad) {
+      setHasInitialLoad(true)
+    }
+  }, [serverStatuses.length, hasInitialLoad])
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
@@ -162,16 +180,27 @@ export default function WorkflowsPage() {
     try {
       const response = await fetch("/api/servers")
       const data = await response.json()
-      
+
       // Load user servers from localStorage (same as monitoring page)
       const storedUserServers = localStorage.getItem("user_servers")
       const userServers = storedUserServers ? JSON.parse(storedUserServers) : []
-      
+
+      // Merge user servers with their configs
+      const enrichedUserServers = (userServers || []).map((s: any) => ({
+        ...s,
+        // Include config if available
+        config: s.config || {},
+        // Include API key if available
+        apiKey: s.apiKey || s.config?.apiKey,
+      }))
+
       const allServers: Server[] = [
         ...(data.system || []).filter((s: Server) => s.enabled),
-        ...(userServers || []).filter((s: Server) => s.enabled),
+        ...enrichedUserServers.filter((s: Server) => s.enabled),
       ]
       setServers(allServers)
+
+      // Health check will be handled by the useServerHealth hook
     } catch (error) {
       console.error("Error fetching servers:", error)
     }
@@ -180,22 +209,22 @@ export default function WorkflowsPage() {
   // Load servers on mount and listen for updates
   React.useEffect(() => {
     fetchServers()
-    
+
     // Listen for storage events to update when servers are added/removed in other tabs
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === "user_servers") {
         fetchServers()
       }
     }
-    
+
     // Also listen for custom event for same-tab updates
     const handleCustomStorage = () => {
       fetchServers()
     }
-    
+
     window.addEventListener("storage", handleStorageChange)
     window.addEventListener("userServersUpdated", handleCustomStorage)
-    
+
     return () => {
       window.removeEventListener("storage", handleStorageChange)
       window.removeEventListener("userServersUpdated", handleCustomStorage)
@@ -226,31 +255,94 @@ export default function WorkflowsPage() {
     try {
       const tools: Tool[] = []
 
+      // Load API keys from localStorage once
+      const apiKeys: Record<string, string> = {}
+      if (typeof window !== "undefined") {
+        apiKeys.maps = localStorage.getItem("google_maps_api_key") || ""
+        apiKeys.github = localStorage.getItem("github_personal_access_token") || ""
+        apiKeys.exa = localStorage.getItem("exa_api_key") || ""
+        apiKeys.notion = localStorage.getItem("notion_api_key") || ""
+        apiKeys.googleOAuthClientId = localStorage.getItem("google_oauth_client_id") || ""
+        apiKeys.googleOAuthClientSecret = localStorage.getItem("google_oauth_client_secret") || ""
+      }
+
       // Fetch tools from each server
-      // Note: This is a simplified implementation - in production, you'd want
-      // to use proper server configs or an aggregated tools endpoint
       for (const server of servers) {
         try {
-          // Build a basic config for the server
-          // In production, this should use actual server configs from the database
+          const serverId = server.id.toLowerCase()
           const config: any = {
             id: server.id,
             name: server.name,
-            transport: server.id === "playwright" ? "stdio" : "http",
             headers: {},
           }
-          if (server.id === "maps" && typeof window !== "undefined") {
-            const storedMapsKey = localStorage.getItem("google_maps_api_key")
-            if (storedMapsKey) {
-              config.headers["X-Goog-Api-Key"] = storedMapsKey.trim()
-            }
-          }
-          
-          if (server.id === "playwright") {
+
+          // Configure transport and server-specific settings
+          if (serverId === "playwright") {
+            config.transport = "stdio"
             config.command = "npx"
             config.args = ["@playwright/mcp@latest", "--headless"]
+          } else if (serverId === "github" || serverId.includes("github")) {
+            config.transport = "stdio"
+            config.command = "npx"
+            config.args = ["-y", "@modelcontextprotocol/server-github"]
+            if (apiKeys.github) {
+              config.env = {
+                GITHUB_PERSONAL_ACCESS_TOKEN: apiKeys.github.trim(),
+              }
+            }
+          } else if (serverId === "notion" || serverId.includes("notion")) {
+            config.transport = "stdio"
+            config.command = "npx"
+            config.args = ["-y", "@notionhq/notion-mcp-server"]
+            if (apiKeys.notion) {
+              config.env = {
+                NOTION_API_KEY: apiKeys.notion.trim(),
+              }
+            }
+          } else if (serverId === "google-workspace" || serverId.includes("workspace")) {
+            config.transport = "stdio"
+            config.command = "python"
+            config.args = ["-m", "main", "--transport", "stdio", "--tools", "gmail", "calendar", "search"]
+            if (apiKeys.googleOAuthClientId && apiKeys.googleOAuthClientSecret) {
+              config.env = {
+                GOOGLE_OAUTH_CLIENT_ID: apiKeys.googleOAuthClientId.trim(),
+                GOOGLE_OAUTH_CLIENT_SECRET: apiKeys.googleOAuthClientSecret.trim(),
+                WORKSPACE_MCP_PORT: "54321", // Avoid conflict with Next.js on port 3000
+                PORT: "54321", // Override PORT inherited from Next.js
+              }
+            }
+          } else if (serverId === "maps" || serverId.includes("maps") || serverId.includes("google-maps")) {
+            config.transport = "http"
+            config.url = "https://mapstools.googleapis.com/mcp"
+            if (apiKeys.maps) {
+              config.headers["X-Goog-Api-Key"] = apiKeys.maps.trim()
+            }
+          } else if (serverId === "exa" || serverId.includes("exa")) {
+            config.transport = "http"
+            config.url = "https://mcp.exa.ai/mcp"
+            if (apiKeys.exa) {
+              config.headers["x-api-key"] = apiKeys.exa.trim()
+              config.headers["Accept"] = "application/json"
+            }
+          } else if (serverId === "langchain" || serverId.includes("langchain")) {
+            config.transport = "http"
+            config.url = "https://langchain-agent-mcp-server-554655392699.us-central1.run.app"
+          } else {
+            // Default to HTTP transport for unknown servers
+            config.transport = "http"
+            // Try to get URL from server config if available
+            const serverConfig = (server as any).config || {}
+            if (serverConfig.url) {
+              config.url = serverConfig.url
+            }
+            // Include API key if available in server config
+            if (serverConfig.apiKey) {
+              config.headers["Authorization"] = `Bearer ${serverConfig.apiKey}`
+            } else if ((server as any).apiKey) {
+              config.headers["Authorization"] = `Bearer ${(server as any).apiKey}`
+            }
           }
-          
+
           const response = await fetch("/api/mcp", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -259,7 +351,7 @@ export default function WorkflowsPage() {
               config,
             }),
           })
-          
+
           if (response.ok) {
             const data = await response.json()
             if (data.tools && Array.isArray(data.tools)) {
@@ -273,16 +365,21 @@ export default function WorkflowsPage() {
                 })
               }
             }
+          } else {
+            // Log error but continue with other servers
+            const errorData = await response.json().catch(() => ({}))
+            console.warn(`Failed to fetch tools from ${server.name}:`, errorData.error || response.statusText)
           }
         } catch (error) {
           // Silently fail for individual servers - we'll show tools that loaded successfully
           console.error(`Error fetching tools from ${server.name}:`, error)
         }
       }
-      
+
       setAllTools(tools)
       allToolsLengthRef.current = tools.length
       lastToolsRefreshRef.current = toolsRefreshTrigger
+      console.log(`[Workflows] Loaded ${tools.length} tools from ${servers.length} servers`)
     } catch (error) {
       console.error("Error fetching tools:", error)
     } finally {
@@ -391,6 +488,26 @@ export default function WorkflowsPage() {
     }
   }
 
+  const handleCameraCapture = (file: File) => {
+    handleImageSelect(file)
+    setShowCamera(false)
+  }
+
+  const handlePermissionGrant = (executionId: string, granted: boolean) => {
+    setToolExecutions((prev) =>
+      prev.map((exec) =>
+        exec.id === executionId
+          ? {
+            ...exec,
+            status: granted ? "running" : "failed",
+            error: granted ? undefined : "Permission denied by user",
+            requiresPermission: false,
+          }
+          : exec
+      )
+    )
+  }
+
   const handlePaste = (e: React.ClipboardEvent) => {
     const items = e.clipboardData.items
     for (let i = 0; i < items.length; i++) {
@@ -443,14 +560,14 @@ export default function WorkflowsPage() {
       /(?:openai|open\s+ai)\s+(?:api\s+)?key\s*[:=]\s*(sk-(?:proj-|org-)?[a-zA-Z0-9\-_]{20,})/i,
       /(sk-(?:proj-|org-)?[a-zA-Z0-9\-_]{20,})\s+(?:is\s+)?(?:my\s+)?(?:openai|open\s+ai)\s+(?:api\s+)?key/i,
     ]
-    
+
     const anthropicPatterns = [
       /(?:my\s+)?(?:anthropic|claude)\s+(?:api\s+)?key\s+(?:is\s+)?(?:[:=]?\s*)?(sk-ant-[a-zA-Z0-9-]{20,})/i,
       /set\s+(?:my\s+)?(?:anthropic|claude)\s+(?:api\s+)?key\s+(?:to\s+)?(?:[:=]?\s*)?(sk-ant-[a-zA-Z0-9-]{20,})/i,
       /(?:anthropic|claude)\s+(?:api\s+)?key\s*[:=]\s*(sk-ant-[a-zA-Z0-9-]{20,})/i,
       /(sk-ant-[a-zA-Z0-9-]{20,})\s+(?:is\s+)?(?:my\s+)?(?:anthropic|claude)\s+(?:api\s+)?key/i,
     ]
-    
+
     const geminiPatterns = [
       /(?:my\s+)?(?:gemini|google)\s+(?:api\s+)?key\s+(?:is\s+)?(?:[:=]?\s*)?(AIza[Sy][a-zA-Z0-9_-]{35})/i,
       /set\s+(?:my\s+)?(?:gemini|google)\s+(?:api\s+)?key\s+(?:to\s+)?(?:[:=]?\s*)?(AIza[Sy][a-zA-Z0-9_-]{35})/i,
@@ -464,14 +581,14 @@ export default function WorkflowsPage() {
         return { provider: "anthropic", key: match[1].trim() }
       }
     }
-    
+
     for (const pattern of geminiPatterns) {
       const match = text.match(pattern)
       if (match && match[1]) {
         return { provider: "gemini", key: match[1].trim() }
       }
     }
-    
+
     for (const pattern of openaiPatterns) {
       const match = text.match(pattern)
       if (match && match[1]) {
@@ -487,30 +604,30 @@ export default function WorkflowsPage() {
     if (!input.trim() && !uploadedImage) return
 
     const userInput = input.trim()
-    
+
     // Check if user is trying to set an API key via natural language
     const apiKeyMatch = parseApiKeyFromText(userInput)
     if (apiKeyMatch) {
-      const storageKey = apiKeyMatch.provider === "openai" ? "openai_api_key" 
+      const storageKey = apiKeyMatch.provider === "openai" ? "openai_api_key"
         : apiKeyMatch.provider === "anthropic" ? "anthropic_api_key"
-        : "gemini_api_key"
-      
+          : "gemini_api_key"
+
       localStorage.setItem(storageKey, apiKeyMatch.key)
-      
+
       const userMessage: Message = {
         id: generateUUID(),
         role: "user",
         content: userInput,
         timestamp: new Date(),
       }
-      
+
       const confirmationMessage: Message = {
         id: generateUUID(),
         role: "assistant",
         content: `✅ ${apiKeyMatch.provider === "openai" ? "OpenAI" : apiKeyMatch.provider === "anthropic" ? "Anthropic (Claude)" : "Google Gemini"} API key saved successfully!`,
         timestamp: new Date(),
       }
-      
+
       setMessages((prev) => [...prev, userMessage, confirmationMessage])
       setInput("")
       return
@@ -525,7 +642,7 @@ export default function WorkflowsPage() {
     }
 
     setMessages((prev) => [...prev, userMessage])
-    
+
     // Add to command history (excluding API key inputs)
     if (userInput.trim()) {
       setCommandHistory((prev) => {
@@ -538,11 +655,11 @@ export default function WorkflowsPage() {
         return newHistory.slice(-50)
       })
     }
-    
+
     setInput("")
     setHistoryIndex(-1) // Reset history index after submitting
     setIsLoading(true)
-    
+
     // Convert image to base64 if needed
     let imageBase64: string | null = null
     if (uploadedImage) {
@@ -560,8 +677,11 @@ export default function WorkflowsPage() {
         console.error("Failed to convert image to base64:", error)
       }
     }
-    
+
     handleRemoveImage()
+
+    // Track tool executions
+    const executionIds: string[] = []
 
     try {
       // Get API key from localStorage based on provider
@@ -584,7 +704,7 @@ export default function WorkflowsPage() {
       let notionApiKey: string | null = null
       let githubToken: string | null = null
       let exaApiKey: string | null = null
-      
+
       if (typeof window !== "undefined") {
         // Load Maps API key
         const storedMapsKey = localStorage.getItem("google_maps_api_key")
@@ -617,7 +737,7 @@ export default function WorkflowsPage() {
               cleanedKey = keyMatch[1]
             }
           }
-          
+
           // Fix common typo if key starts with "Alza" instead of "AIza"
           if (cleanedKey.startsWith("Alza")) {
             cleanedKey = "AIza" + cleanedKey.substring(4)
@@ -625,7 +745,7 @@ export default function WorkflowsPage() {
             localStorage.setItem("google_maps_api_key", cleanedKey)
             console.log(`[Workflows] Fixed typo in Maps API key: "Alza" -> "AIza"`)
           }
-          
+
           if (cleanedKey && cleanedKey.startsWith("AIza")) {
             mapsApiKey = cleanedKey
             console.log(`[Workflows] Using Maps API key from localStorage (length: ${mapsApiKey.length}, starts with: ${mapsApiKey.substring(0, 10)}...)`)
@@ -633,21 +753,21 @@ export default function WorkflowsPage() {
             console.warn(`[Workflows] Invalid Maps API key format in localStorage. Key should start with "AIza"`)
           }
         }
-        
+
         // Load Notion API key
         const storedNotionKey = localStorage.getItem("notion_api_key")
         if (storedNotionKey) {
           notionApiKey = storedNotionKey.trim()
           console.log(`[Workflows] Using Notion API key from localStorage (length: ${notionApiKey.length})`)
         }
-        
+
         // Load GitHub token
         const storedGitHubToken = localStorage.getItem("github_personal_access_token")
         if (storedGitHubToken) {
           githubToken = storedGitHubToken.trim()
           console.log(`[Workflows] Using GitHub token from localStorage (length: ${githubToken.length})`)
         }
-        
+
         // Load Exa API key
         const storedExaKey = localStorage.getItem("exa_api_key")
         if (storedExaKey) {
@@ -656,7 +776,7 @@ export default function WorkflowsPage() {
         }
       }
 
-      // Call the API
+      // Call the API with streaming support for tool execution tracking
       const response = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -673,48 +793,58 @@ export default function WorkflowsPage() {
         }),
       })
 
-        const contentType = response.headers.get("content-type")
-        if (!response.ok) {
-          let errorMessage = "Failed to get response from API"
-          if (contentType && contentType.includes("application/json")) {
-            try {
-              const errorData = await response.json()
-              errorMessage = errorData.error || errorData.details || errorMessage
-              
-              // Handle API key errors
-              if (errorMessage.includes("API key") || response.status === 401) {
-                const providerName = chatProvider === "openai" ? "OpenAI" 
-                  : chatProvider === "anthropic" ? "Anthropic (Claude)" 
+      // Monitor for tool executions (this is a simplified version - in production, you'd use SSE or WebSocket)
+      // For now, we'll track based on the response
+      if (response.ok) {
+        // Refresh health to update server statuses
+        refreshHealth()
+      }
+
+      const contentType = response.headers.get("content-type")
+      if (!response.ok) {
+        let errorMessage = "Failed to get response from API"
+        if (contentType && contentType.includes("application/json")) {
+          try {
+            const errorData = await response.json()
+            errorMessage = errorData.error || errorData.details || errorMessage
+
+            // Handle API key errors
+            if (errorMessage.includes("API key") || response.status === 401) {
+              const providerName = chatProvider === "openai" ? "OpenAI"
+                : chatProvider === "anthropic" ? "Anthropic (Claude)"
                   : "Google Gemini"
-                const keyPrefix = chatProvider === "openai" ? "sk-"
-                  : chatProvider === "anthropic" ? "sk-ant-"
+              const keyPrefix = chatProvider === "openai" ? "sk-"
+                : chatProvider === "anthropic" ? "sk-ant-"
                   : "AIza"
-                
-                errorMessage = `${errorMessage}\n\nPlease provide your ${providerName} API key. You can:\n1. Type it here in the chat (e.g., "my ${chatProvider} key is ${keyPrefix}..."), or\n2. Go to Settings (click your avatar) to enter it.`
-              } else if (errorMessage.includes("not yet") && errorMessage.includes("implemented")) {
-                const providerName = chatProvider === "openai" ? "OpenAI" 
-                  : chatProvider === "anthropic" ? "Anthropic (Claude)" 
+
+              errorMessage = `${errorMessage}\n\nPlease provide your ${providerName} API key. You can:\n1. Type it here in the chat (e.g., "my ${chatProvider} key is ${keyPrefix}..."), or\n2. Go to Settings (click your avatar) to enter it.`
+            } else if (errorMessage.includes("not yet") && errorMessage.includes("implemented")) {
+              const providerName = chatProvider === "openai" ? "OpenAI"
+                : chatProvider === "anthropic" ? "Anthropic (Claude)"
                   : "Google Gemini"
-                const keyPrefix = chatProvider === "openai" ? "sk-"
-                  : chatProvider === "anthropic" ? "sk-ant-"
+              const keyPrefix = chatProvider === "openai" ? "sk-"
+                : chatProvider === "anthropic" ? "sk-ant-"
                   : "AIza"
-                
-                errorMessage = `${errorMessage}\n\nPlease provide your ${providerName} API key. You can:\n1. Type it here in the chat (e.g., "my ${chatProvider} key is ${keyPrefix}..."), or\n2. Go to Settings (click your avatar) to enter it.`
-              }
-            } catch (e) {
-              errorMessage = `API Error: ${response.status} ${response.statusText}`
+
+              errorMessage = `${errorMessage}\n\nPlease provide your ${providerName} API key. You can:\n1. Type it here in the chat (e.g., "my ${chatProvider} key is ${keyPrefix}..."), or\n2. Go to Settings (click your avatar) to enter it.`
             }
-          } else {
-            errorMessage = `API Error: ${response.status} ${response.statusText}. The server may need to be restarted.`
+          } catch (e) {
+            errorMessage = `API Error: ${response.status} ${response.statusText}`
           }
-          throw new Error(errorMessage)
+        } else {
+          errorMessage = `API Error: ${response.status} ${response.statusText}. The server may need to be restarted.`
         }
+        throw new Error(errorMessage)
+      }
 
       if (!contentType || !contentType.includes("application/json")) {
         throw new Error("API returned non-JSON response. Please check the server.")
       }
 
       const data = await response.json()
+
+      // Refresh health after completion
+      refreshHealth()
 
       // Add assistant message
       const assistantMessage: Message = {
@@ -748,21 +878,21 @@ export default function WorkflowsPage() {
 
     const cursorPos = textarea.selectionStart
     const textBeforeCursor = input.substring(0, cursorPos)
-    
+
     // Check for hashtag tool autocomplete (#)
     const lastHashtagIndex = textBeforeCursor.lastIndexOf("#")
     const textAfterHashtag = textBeforeCursor.substring(lastHashtagIndex + 1)
     const hasSpaceAfterHashtag = textAfterHashtag.includes(" ") || textAfterHashtag.includes("\n")
-    
+
     // Check for slash server autocomplete (/)
     const lastSlashIndex = textBeforeCursor.lastIndexOf("/")
     const textAfterSlash = textBeforeCursor.substring(lastSlashIndex + 1)
     const hasSpaceAfterSlash = textAfterSlash.includes(" ") || textAfterSlash.includes("\n")
-    
+
     // Determine which autocomplete to show (hashtag takes precedence if both are present)
     const hashtagIsActive = lastHashtagIndex >= 0 && !hasSpaceAfterHashtag && cursorPos === textBeforeCursor.length && (lastSlashIndex < 0 || lastHashtagIndex > lastSlashIndex)
     const slashIsActive = lastSlashIndex >= 0 && !hasSpaceAfterSlash && cursorPos === textBeforeCursor.length && !hashtagIsActive
-    
+
     if (hashtagIsActive) {
       // We're in a hashtag tool command - extract query
       const query = textAfterHashtag.toLowerCase()
@@ -787,7 +917,7 @@ export default function WorkflowsPage() {
   // Filter servers based on query
   const filteredServers = React.useMemo(() => {
     if (!autocompleteQuery) return servers
-    return servers.filter(server => 
+    return servers.filter(server =>
       server.name.toLowerCase().includes(autocompleteQuery) ||
       server.id.toLowerCase().includes(autocompleteQuery)
     )
@@ -796,7 +926,7 @@ export default function WorkflowsPage() {
   // Filter tools based on query
   const filteredTools = React.useMemo(() => {
     if (!autocompleteQuery) return allTools
-    return allTools.filter(tool => 
+    return allTools.filter(tool =>
       tool.name.toLowerCase().includes(autocompleteQuery) ||
       tool.description?.toLowerCase().includes(autocompleteQuery) ||
       tool.serverName.toLowerCase().includes(autocompleteQuery) ||
@@ -859,7 +989,7 @@ export default function WorkflowsPage() {
     if (showAutocomplete && filteredList.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault()
-        setSelectedAutocompleteIndex(prev => 
+        setSelectedAutocompleteIndex(prev =>
           prev < filteredList.length - 1 ? prev + 1 : prev
         )
         return
@@ -890,7 +1020,7 @@ export default function WorkflowsPage() {
         return
       }
     }
-    
+
     if (e.key === "Enter" && !e.shiftKey && !showAutocomplete) {
       e.preventDefault()
       handleSubmit(e as any)
@@ -903,7 +1033,7 @@ export default function WorkflowsPage() {
     if (server.type === "system") {
       return server.id
     }
-    
+
     // For user servers, generate a slug from the name
     // Convert to lowercase, replace spaces/special chars with hyphens
     let slug = server.name
@@ -911,15 +1041,15 @@ export default function WorkflowsPage() {
       .trim()
       .replace(/[^a-z0-9]+/g, "-") // Replace non-alphanumeric with hyphens
       .replace(/^-+|-+$/g, "") // Remove leading/trailing hyphens
-    
+
     // If slug is empty or too short, use a shortened version of the ID
     if (!slug || slug.length < 3) {
       slug = server.id.replace(/^user-/, "").substring(0, 15)
     }
-    
+
     return slug.substring(0, 30) // Limit length
   }
-  
+
   // Store server slug to ID mapping for later use
   const serverSlugMap = React.useMemo(() => {
     const map = new Map<string, string>()
@@ -943,14 +1073,14 @@ export default function WorkflowsPage() {
     const cursorPos = textarea.selectionStart
     const textBeforeCursor = input.substring(0, cursorPos)
     const lastSlashIndex = textBeforeCursor.lastIndexOf("/")
-    
+
     if (lastSlashIndex >= 0) {
       const beforeSlash = input.substring(0, lastSlashIndex)
       const afterCursor = input.substring(cursorPos)
       const newInput = `${beforeSlash}/${serverSlug} ${afterCursor}`
       setInput(newInput)
       setShowAutocomplete(false)
-      
+
       // Set cursor position after the inserted command
       setTimeout(() => {
         const newCursorPos = lastSlashIndex + serverSlug.length + 2 // +1 for /, +1 for space
@@ -967,14 +1097,14 @@ export default function WorkflowsPage() {
     const cursorPos = textarea.selectionStart
     const textBeforeCursor = input.substring(0, cursorPos)
     const lastHashtagIndex = textBeforeCursor.lastIndexOf("#")
-    
+
     if (lastHashtagIndex >= 0) {
       const beforeHashtag = input.substring(0, lastHashtagIndex)
       const afterCursor = input.substring(cursorPos)
       const newInput = `${beforeHashtag}#${toolName} ${afterCursor}`
       setInput(newInput)
       setShowAutocomplete(false)
-      
+
       // Set cursor position after the inserted tool name
       setTimeout(() => {
         const newCursorPos = lastHashtagIndex + toolName.length + 2 // +1 for #, +1 for space
@@ -999,8 +1129,30 @@ export default function WorkflowsPage() {
     }
   }
 
+  // Check if mobile device
+  const [isMobile, setIsMobile] = React.useState(false)
+
+  React.useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 1024)
+    }
+    checkMobile()
+    window.addEventListener("resize", checkMobile)
+    return () => window.removeEventListener("resize", checkMobile)
+  }, [])
+
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col relative">
+      {/* Tool Execution Status - Above messages */}
+      {toolExecutions.length > 0 && (
+        <div className="px-4 pt-4 pb-2 border-b border-border bg-background/50 backdrop-blur-sm">
+          <ToolExecutionStatus
+            executions={toolExecutions}
+            onPermissionGrant={handlePermissionGrant}
+          />
+        </div>
+      )}
+
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-3xl space-y-2">
@@ -1023,7 +1175,7 @@ export default function WorkflowsPage() {
               {message.role === "assistant" && (
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 overflow-hidden">
                   <Image
-                    src="/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"
+                    src="/nexus2.svg"
                     alt="Nexus"
                     width={32}
                     height={32}
@@ -1032,9 +1184,8 @@ export default function WorkflowsPage() {
                 </div>
               )}
               <Card
-                className={`max-w-[85%] sm:max-w-[75%] py-0 ${
-                  message.role === "user" ? "bg-primary text-primary-foreground" : ""
-                }`}
+                className={`max-w-[85%] sm:max-w-[75%] py-0 ${message.role === "user" ? "bg-primary text-primary-foreground" : ""
+                  }`}
               >
                 <CardContent className="py-2 px-3">
                   {message.imageUrl && (
@@ -1057,9 +1208,15 @@ export default function WorkflowsPage() {
                           // Also remove standalone image markdown that might be in the text
                           processedContent = processedContent.replace(/\[Screenshot[^\]]*\]\([^)]+\)/g, '')
                         }
-                        
-                        return processedContent.split(/(https?:\/\/[^\s]+)/g).map((part, index) => {
+
+                        return processedContent.split(/(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9]{1,6}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*))/g).map((part, index) => {
                           if (part.match(/^https?:\/\//)) {
+                            // Check if this is a Google OAuth URL that needs CSRF protection
+                            let finalUrl = part
+                            if (part.includes("accounts.google.com/o/oauth2") && part.includes("state=")) {
+                              const encodedUrl = encodeURIComponent(part)
+                              finalUrl = `/api/auth/oauth-start?url=${encodedUrl}`
+                            }
                             return (
                               <a
                                 key={index}
@@ -1099,7 +1256,7 @@ export default function WorkflowsPage() {
             <div className="flex gap-3 justify-start">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 overflow-hidden">
                 <Image
-                  src="/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"
+                  src="/nexus2.svg"
                   alt="Nexus"
                   width={32}
                   height={32}
@@ -1158,13 +1315,7 @@ export default function WorkflowsPage() {
                   type="button"
                   className="h-[60px] w-[60px] flex items-center justify-center gap-1.5 text-muted-foreground"
                 >
-                  <Image 
-                    src="/brain_icon.png" 
-                    alt="AI Provider" 
-                    width={20} 
-                    height={20} 
-                    className="h-5 w-5 dark:invert"
-                  />
+                  <Brain className="h-5 w-5 text-primary" />
                   <ChevronDown className="h-3.5 w-3.5" />
                 </HoverIconButton>
               </DropdownMenuTrigger>
@@ -1203,9 +1354,8 @@ export default function WorkflowsPage() {
                       ? "Listening..."
                       : "Type your request, speak, or paste/drag an image..."
                 }
-                className={`min-h-[60px] max-h-[200px] resize-none ${
-                  isSpeechSupported ? "pr-20" : "pr-12"
-                }`}
+                className={`min-h-[60px] max-h-[200px] resize-none ${isSpeechSupported ? "pr-20" : "pr-12"
+                  }`}
                 disabled={isLoading}
               />
               {showAutocomplete && filteredList.length > 0 && (
@@ -1218,9 +1368,8 @@ export default function WorkflowsPage() {
                       <div
                         key={server.id}
                         onClick={() => insertServerCommand(server.id)}
-                        className={`px-3 py-2 cursor-pointer flex items-center gap-2 hover:bg-accent transition-colors ${
-                          index === selectedAutocompleteIndex ? "bg-accent" : ""
-                        }`}
+                        className={`px-3 py-2 cursor-pointer flex items-center gap-2 hover:bg-accent transition-colors ${index === selectedAutocompleteIndex ? "bg-accent" : ""
+                          }`}
                         onMouseEnter={() => setSelectedAutocompleteIndex(index)}
                       >
                         {server.logoUrl && (
@@ -1249,9 +1398,8 @@ export default function WorkflowsPage() {
                       <div
                         key={`${tool.serverId}-${tool.name}`}
                         onClick={() => insertToolCommand(tool.name, tool.serverId)}
-                        className={`px-3 py-2 cursor-pointer flex items-center gap-2 hover:bg-accent transition-colors ${
-                          index === selectedAutocompleteIndex ? "bg-accent" : ""
-                        }`}
+                        className={`px-3 py-2 cursor-pointer flex items-center gap-2 hover:bg-accent transition-colors ${index === selectedAutocompleteIndex ? "bg-accent" : ""
+                          }`}
                         onMouseEnter={() => setSelectedAutocompleteIndex(index)}
                       >
                         {tool.serverLogoUrl && (
@@ -1302,10 +1450,21 @@ export default function WorkflowsPage() {
                     title={isRecording ? "Stop recording" : "Start voice input"}
                   >
                     <Mic
-                      className={`h-4 w-4 ${
-                        isRecording ? "text-destructive" : "text-muted-foreground"
-                      }`}
+                      className={`h-4 w-4 ${isRecording ? "text-destructive" : "text-muted-foreground"
+                        }`}
                     />
+                  </HoverIconButton>
+                )}
+                {/* Camera button - show on mobile or when camera is available */}
+                {(isMobile || (typeof navigator !== "undefined" && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function')) && (
+                  <HoverIconButton
+                    type="button"
+                    onClick={() => setShowCamera(true)}
+                    disabled={isLoading}
+                    className="p-2"
+                    title="Take photo"
+                  >
+                    <Camera className="h-4 w-4 text-muted-foreground" />
                   </HoverIconButton>
                 )}
                 <label htmlFor="image-upload">
@@ -1337,6 +1496,21 @@ export default function WorkflowsPage() {
           </form>
         </div>
       </div>
+
+      {/* MCP Server Sidebar */}
+      <McpServerSidebar
+        servers={serverStatuses}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
+      />
+
+      {/* Camera Capture Modal */}
+      {showCamera && (
+        <CameraCapture
+          onCapture={handleCameraCapture}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
     </div>
   )
 }

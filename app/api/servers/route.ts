@@ -3,6 +3,25 @@ import { getAuthenticatedUser, getSupabaseClient } from "@/lib/get-user-session"
 
 // Get servers endpoint - fetches from Supabase when authenticated, returns empty user servers when not
 export async function GET() {
+  // Check if Supabase environment variables are set
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("[API Servers] Missing Supabase environment variables:")
+    console.error(`  NEXT_PUBLIC_SUPABASE_URL: ${supabaseUrl ? 'SET' : 'MISSING'}`)
+    console.error(`  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${supabaseAnonKey ? 'SET' : 'MISSING'}`)
+    return NextResponse.json(
+      { 
+        error: "Supabase configuration missing",
+        system: [],
+        user: [],
+        message: "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set in environment variables"
+      },
+      { status: 500 }
+    )
+  }
+
   // Fetch system servers from database
   let systemServers: any[] = []
   try {
@@ -12,6 +31,16 @@ export async function GET() {
       .select("id, name, config, enabled, rate_limit_per_minute, logo_url")
       .eq("enabled", true)
       .order("name", { ascending: true })
+    
+    if (error) {
+      console.error("[API Servers] Supabase query error:", error)
+      console.error("[API Servers] Error details:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      })
+    }
     
     if (!error && data) {
       systemServers = data.map((server: any) => {
@@ -105,7 +134,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { name, url, transport, apiKey, logoUrl, description } = body
+    const { name, url, transport, apiKey, oauthClientId, oauthClientSecret, logoUrl, description } = body
 
     if (!name || !url || !transport) {
       return NextResponse.json(
@@ -125,10 +154,24 @@ export async function POST(request: Request) {
         const supabase = await getSupabaseClient()
         
         // Build config object (store as JSONB for now - can add encryption later)
-        const config = {
+        const config: any = {
           url,
-          apiKey: apiKey || undefined,
-          headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+        }
+        
+        // Add API key if provided
+        if (apiKey) {
+          config.apiKey = apiKey
+          config.headers = { Authorization: `Bearer ${apiKey}` }
+        }
+        
+        // Add OAuth credentials if provided (for Google Workspace)
+        if (oauthClientId && oauthClientSecret) {
+          config.oauthClientId = oauthClientId
+          config.oauthClientSecret = oauthClientSecret
+          config.env = {
+            GOOGLE_OAUTH_CLIENT_ID: oauthClientId,
+            GOOGLE_OAUTH_CLIENT_SECRET: oauthClientSecret,
+          }
         }
         
         const { data, error } = await supabase
@@ -153,7 +196,7 @@ export async function POST(request: Request) {
           )
         }
         
-        const newServer = {
+        const newServer: any = {
           id: data.server_id,
           name: data.name,
           type: "user" as const,
@@ -166,6 +209,14 @@ export async function POST(request: Request) {
           apiKey: apiKey || undefined,
         }
         
+        // Include OAuth credentials in response (for Google Workspace)
+        if (oauthClientId && oauthClientSecret) {
+          newServer.config = {
+            oauthClientId,
+            oauthClientSecret,
+          }
+        }
+        
         return NextResponse.json({ server: newServer }, { status: 201 })
       } catch (error) {
         console.error("[API Servers] Error:", error)
@@ -176,7 +227,7 @@ export async function POST(request: Request) {
       }
     } else {
       // Not authenticated - return server for localStorage storage
-      const newServer = {
+      const newServer: any = {
         id: serverId,
         name,
         type: "user" as const,
@@ -184,10 +235,19 @@ export async function POST(request: Request) {
         logoUrl: logoUrl || undefined,
         transport: transport as "http" | "stdio",
         rateLimit: 60,
-        description: description || `Custom MCP server: ${name}`,
-        url,
         apiKey: apiKey || undefined,
       }
+      
+      // Include OAuth credentials for Google Workspace
+      if (oauthClientId && oauthClientSecret) {
+        newServer.config = {
+          oauthClientId,
+          oauthClientSecret,
+        }
+      }
+      
+      newServer.description = description || `Custom MCP server: ${name}`
+      newServer.url = url
       
       return NextResponse.json({ server: newServer }, { status: 201 })
     }

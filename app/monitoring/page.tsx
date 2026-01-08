@@ -30,6 +30,7 @@ import {
   Activity,
   ExternalLink,
   Hash,
+  AlertTriangle,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -108,7 +109,7 @@ function RegistryPageContent() {
           const response = await fetch(`/api/servers/${serverId}`, {
             method: "DELETE",
           })
-          
+
           if (!response.ok) {
             console.error("Failed to delete server from Supabase")
           }
@@ -124,20 +125,20 @@ function RegistryPageContent() {
           localStorage.setItem("user_servers", JSON.stringify(updatedServers))
         }
       }
-      
+
       // Dispatch custom event to notify other components
       window.dispatchEvent(new Event("userServersUpdated"))
-      
+
       // Refresh server list
       fetchServers()
     }
-    
+
     // Update UI state
     setServers((prev) => ({
       ...prev,
       [type]: prev[type].filter((s) => s.id !== serverId),
     }))
-    
+
     console.log("Deleted server:", serverId, type)
   }
 
@@ -146,17 +147,17 @@ function RegistryPageContent() {
     try {
       const res = await fetch("/api/servers")
       const data = await res.json()
-      
+
       // If user is authenticated, use servers from API (Supabase)
       // Otherwise, fall back to localStorage
       let userServers = data.user || []
-      
+
       if (!user && typeof window !== "undefined") {
         // Not authenticated - load from localStorage
         const storedUserServers = localStorage.getItem("user_servers")
         userServers = storedUserServers ? JSON.parse(storedUserServers) : []
       }
-      
+
       setServers({
         system: data.system || [],
         user: userServers,
@@ -203,8 +204,8 @@ function RegistryPageContent() {
     <div className="flex flex-col gap-10 p-8">
       {/* AddServerDialog for navbar trigger and editing */}
       <div className="hidden">
-        <AddServerDialog 
-          onAdd={() => fetchServers()} 
+        <AddServerDialog
+          onAdd={() => fetchServers()}
           onDelete={handleDeleteServer}
           open={addServerOpen}
           onOpenChange={(open) => {
@@ -302,7 +303,7 @@ function ServerCard({
 
     setLoadingTools(true)
     setToolsError(null)
-    
+
     try {
       // Parse config if it's a string
       let parsedConfig: any = server.config
@@ -354,8 +355,8 @@ function ServerCard({
               config.command = "npx"
               config.args = ["-y", "@notionhq/notion-mcp-server"]
             } else if (server.id === "google-workspace") {
-              config.command = "uvx"
-              config.args = ["workspace-mcp", "--transport", "streamable-http"]
+              config.command = "python"
+              config.args = ["-m", "main", "--transport", "stdio"]
             }
           }
         }
@@ -422,7 +423,7 @@ function ServerCard({
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Failed to fetch tools" }))
         let errorMessage = errorData.error || `HTTP ${response.status}`
-        
+
         // Provide helpful error messages for common issues
         if (server.id === "exa" && response.status === 401) {
           errorMessage = "Exa API key is missing or invalid. Please add your Exa API key in the server settings."
@@ -433,7 +434,7 @@ function ServerCard({
         } else if (response.status === 404) {
           errorMessage = `Server endpoint not found. Please check the server URL configuration.`
         }
-        
+
         console.error(`[ServerCard] Error fetching tools for ${server.id}:`, errorMessage, errorData)
         throw new Error(errorMessage)
       }
@@ -441,11 +442,11 @@ function ServerCard({
       const data = await response.json()
       const toolList = data.tools || []
       console.log(`[ServerCard] Received ${toolList.length} tools for ${server.id} (${server.name}):`, toolList.map((t: Tool) => t.name))
-      
+
       if (toolList.length === 0) {
         console.warn(`[ServerCard] No tools returned for ${server.id}. Response:`, data)
       }
-      
+
       setTools(toolList)
     } catch (error) {
       console.error("Error fetching tools:", error)
@@ -465,22 +466,21 @@ function ServerCard({
   // Determine logo-specific styling
   const isGoogleMaps = server.id === "maps"
   const isGitHub = server.id === "github"
-  
+
   const logoClassName = isGoogleMaps
     ? "object-contain scale-[0.6]" // Make Google Maps logo smaller
     : isGitHub
-    ? "object-contain dark:brightness-0 dark:invert" // Make GitHub logo visible in dark mode
-    : "object-contain"
+      ? "object-contain dark:brightness-0 dark:invert" // Make GitHub logo visible in dark mode
+      : "object-contain"
 
   return (
-    <Card 
+    <Card
       className="relative overflow-hidden cursor-pointer hover:bg-accent/50 transition-colors"
       onClick={() => onEdit?.(server)}
     >
       {/* LED Status Indicator */}
-      <div className={`absolute top-3 left-3 h-2.5 w-2.5 rounded-full ${
-        server.enabled ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]"
-      }`} />
+      <div className={`absolute top-3 left-3 h-2.5 w-2.5 rounded-full ${server.enabled ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)]"
+        }`} />
       {/* Power Button - Top Right */}
       <Button
         variant="ghost"
@@ -616,20 +616,20 @@ function ServerCard({
 
 // Known MCP server configurations
 const KNOWN_SERVERS: Record<string, { url: string; requiresApiKey?: boolean; apiKeyLink?: string; transport?: "http" | "stdio" }> = {
-  "google maps grounding": { 
-    url: "https://mapstools.googleapis.com/mcp", 
+  "google maps grounding": {
+    url: "https://mapstools.googleapis.com/mcp",
     transport: "http",
     requiresApiKey: true,
     apiKeyLink: "https://console.cloud.google.com/apis/credentials"
   },
-  "google maps": { 
-    url: "https://mapstools.googleapis.com/mcp", 
+  "google maps": {
+    url: "https://mapstools.googleapis.com/mcp",
     transport: "http",
     requiresApiKey: true,
     apiKeyLink: "https://console.cloud.google.com/apis/credentials"
   },
-  "maps": { 
-    url: "https://mapstools.googleapis.com/mcp", 
+  "maps": {
+    url: "https://mapstools.googleapis.com/mcp",
     transport: "http",
     requiresApiKey: true,
     apiKeyLink: "https://console.cloud.google.com/apis/credentials"
@@ -652,16 +652,16 @@ const KNOWN_SERVERS: Record<string, { url: string; requiresApiKey?: boolean; api
     requiresApiKey: true,
     apiKeyLink: "https://docs.exa.ai/reference/exa-mcp",
   },
-  "github": { 
+  "github": {
     url: "stdio", // GitHub MCP server uses stdio transport
     transport: "stdio",
     requiresApiKey: true,
     apiKeyLink: "https://github.com/settings/tokens"
   },
-  "playwright": { 
+  "playwright": {
     url: "stdio", // Playwright uses stdio with npx command
     transport: "stdio",
-    requiresApiKey: false 
+    requiresApiKey: false
   },
   "langchain": {
     url: "https://langchain-agent-mcp-server-554655392699.us-central1.run.app",
@@ -729,17 +729,17 @@ const KNOWN_SERVERS: Record<string, { url: string; requiresApiKey?: boolean; api
 function getApiKeyLink(serverName: string, serverId?: string): string | undefined {
   const normalizedName = serverName.toLowerCase().trim()
   const normalizedId = serverId?.toLowerCase().trim()
-  
+
   // Check by server name first
   if (KNOWN_SERVERS[normalizedName]?.apiKeyLink) {
     return KNOWN_SERVERS[normalizedName].apiKeyLink
   }
-  
+
   // Check by server ID
   if (normalizedId && KNOWN_SERVERS[normalizedId]?.apiKeyLink) {
     return KNOWN_SERVERS[normalizedId].apiKeyLink
   }
-  
+
   // Check if name contains keywords
   if (normalizedName.includes("github")) {
     return "https://github.com/settings/tokens"
@@ -756,17 +756,17 @@ function getApiKeyLink(serverName: string, serverId?: string): string | undefine
   if (normalizedName.includes("n8n")) {
     return "https://docs.n8n.io/hosting/authentication/"
   }
-  
+
   return undefined
 }
 
-function AddServerDialog({ 
+function AddServerDialog({
   onAdd,
   onDelete,
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
   editingServer
-}: { 
+}: {
   onAdd: () => void
   onDelete?: (id: string, type: "system" | "user") => void
   open?: boolean
@@ -780,6 +780,8 @@ function AddServerDialog({
   const [name, setName] = React.useState("")
   const [url, setUrl] = React.useState("")
   const [apiKey, setApiKey] = React.useState("")
+  const [oauthClientId, setOauthClientId] = React.useState("")
+  const [oauthClientSecret, setOauthClientSecret] = React.useState("")
   const [naturalLanguageInChat] = React.useState(true) // Always enabled by default
   const [logoFile, setLogoFile] = React.useState<File | null>(null)
   const [logoPreview, setLogoPreview] = React.useState<string | null>(null)
@@ -800,13 +802,13 @@ function AddServerDialog({
       }
     }
   }, [name, url, editingServer])
-  
+
   // Auto-populate API key from localStorage when server name changes
   React.useEffect(() => {
     if (name && !editingServer && !apiKey) {
       const normalizedName = name.toLowerCase().trim()
       let savedKey = ""
-      
+
       if (normalizedName.includes("github")) {
         savedKey = localStorage.getItem("github_personal_access_token") || ""
       } else if (normalizedName.includes("exa")) {
@@ -816,7 +818,7 @@ function AddServerDialog({
       } else if (normalizedName.includes("notion")) {
         savedKey = localStorage.getItem("notion_api_key") || ""
       }
-      
+
       if (savedKey) {
         setApiKey(savedKey)
       }
@@ -824,21 +826,21 @@ function AddServerDialog({
   }, [name, editingServer, apiKey])
 
   React.useEffect(() => {
-      if (editingServer) {
+    if (editingServer) {
       setName(editingServer.name)
       // Prepopulate URL for system servers
       const serverId = editingServer.id.toLowerCase()
       const serverName = editingServer.name.toLowerCase()
       const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
       const defaultUrl = knownServer?.url || ""
-      
+
       // For stdio servers, show "stdio" as the URL (read-only)
       if (knownServer?.transport === "stdio") {
         setUrl("stdio")
       } else {
         setUrl(defaultUrl)
       }
-      
+
       // Load API key from localStorage if available, otherwise use server's stored key
       let savedApiKey = ""
       if (serverId === "github" || serverId.includes("github")) {
@@ -850,13 +852,18 @@ function AddServerDialog({
       } else if (serverId === "notion" || serverId.includes("notion")) {
         savedApiKey = localStorage.getItem("notion_api_key") || editingServer.apiKey || ""
       } else if (serverId === "google-workspace" || serverId.includes("google-workspace") || serverId.includes("workspace")) {
-        // Google Workspace uses OAuth, but we can store client ID/secret if needed
+        // Google Workspace uses OAuth - load from server config, localStorage, or environment
+        const config = (editingServer as any).config || {}
+        const savedClientId = config.oauthClientId || localStorage.getItem("google_oauth_client_id") || ""
+        const savedClientSecret = config.oauthClientSecret || localStorage.getItem("google_oauth_client_secret") || ""
+        setOauthClientId(savedClientId)
+        setOauthClientSecret(savedClientSecret)
         savedApiKey = editingServer.apiKey || ""
       } else {
         savedApiKey = editingServer.apiKey || ""
       }
       setApiKey(savedApiKey)
-      
+
       // naturalLanguageInChat is always true, no need to set it
       if (editingServer.logoUrl) {
         setLogoPreview(editingServer.logoUrl)
@@ -865,6 +872,8 @@ function AddServerDialog({
       setName("")
       setUrl("")
       setApiKey("")
+      setOauthClientId("")
+      setOauthClientSecret("")
       // naturalLanguageInChat is always true, no need to reset it
       setTestResult(null)
       setLogoFile(null)
@@ -881,7 +890,7 @@ function AddServerDialog({
       setLogoFile(file)
       const url = URL.createObjectURL(file)
       setLogoPreview(url) // For preview display
-      
+
       // Also convert to data URL for storage
       const reader = new FileReader()
       reader.onloadend = () => {
@@ -907,13 +916,13 @@ function AddServerDialog({
       const serverId = editingServer?.id?.toLowerCase() || normalizedName
       const serverName = name.toLowerCase().trim()
       const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-      
+
       let testConfig: any
       let testServerId = serverId
 
       // Test Google Maps API key
-      if (normalizedName.includes("google") && normalizedName.includes("maps") || 
-          serverId === "maps" || serverId === "google-maps-grounding") {
+      if (normalizedName.includes("google") && normalizedName.includes("maps") ||
+        serverId === "maps" || serverId === "google-maps-grounding") {
         testConfig = {
           id: "maps",
           name: "Google Maps Grounding",
@@ -965,9 +974,9 @@ function AddServerDialog({
       }
       // Unsupported server for API key testing
       else {
-        setApiKeyTestResult({ 
-          success: false, 
-          message: `API key testing is not available for ${name}. You can test the connection using the "Test" button next to the URL field.` 
+        setApiKeyTestResult({
+          success: false,
+          message: `API key testing is not available for ${name}. You can test the connection using the "Test" button next to the URL field.`
         })
         setTestingApiKey(false)
         return
@@ -986,9 +995,9 @@ function AddServerDialog({
       const data = await response.json()
 
       if (response.ok && data.status?.healthy) {
-        setApiKeyTestResult({ 
-          success: true, 
-          message: data.status.message || "✅ API key is valid and working!" 
+        setApiKeyTestResult({
+          success: true,
+          message: data.status.message || "✅ API key is valid and working!"
         })
       } else {
         const errorMsg = data.status?.message || data.error || "API key test failed"
@@ -1001,15 +1010,15 @@ function AddServerDialog({
         } else if (errorMsg.includes("404") || errorMsg.includes("Not Found")) {
           helpfulMessage = "❌ Server endpoint not found. Please check the server configuration."
         }
-        setApiKeyTestResult({ 
-          success: false, 
-          message: helpfulMessage 
+        setApiKeyTestResult({
+          success: false,
+          message: helpfulMessage
         })
       }
     } catch (error) {
-      setApiKeyTestResult({ 
-        success: false, 
-        message: error instanceof Error ? `Failed to test API key: ${error.message}` : "Failed to test API key. Please check your connection and try again." 
+      setApiKeyTestResult({
+        success: false,
+        message: error instanceof Error ? `Failed to test API key: ${error.message}` : "Failed to test API key. Please check your connection and try again."
       })
     } finally {
       setTestingApiKey(false)
@@ -1023,25 +1032,25 @@ function AddServerDialog({
     try {
       const normalizedName = name.toLowerCase().trim()
       const serverId = editingServer?.id?.toLowerCase() || normalizedName
-      
+
       // Determine transport type based on server type or URL
       const serverName = name.toLowerCase().trim()
       const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-      const isStdioServer = url === "stdio" || 
-                           knownServer?.transport === "stdio" ||
-                           serverId === "github" || 
-                           serverId === "playwright" ||
-                           serverId === "notion" ||
-                           serverId === "google-workspace" ||
-                           serverId === "n8n" ||
-                           serverId === "sequential-thinking" ||
-                           normalizedName === "github" ||
-                           normalizedName === "playwright" ||
-                           normalizedName === "notion" ||
-                           normalizedName.includes("workspace") ||
-                           normalizedName === "n8n" ||
-                           normalizedName.includes("sequential")
-      
+      const isStdioServer = url === "stdio" ||
+        knownServer?.transport === "stdio" ||
+        serverId === "github" ||
+        serverId === "playwright" ||
+        serverId === "notion" ||
+        serverId === "google-workspace" ||
+        serverId === "n8n" ||
+        serverId === "sequential-thinking" ||
+        normalizedName === "github" ||
+        normalizedName === "playwright" ||
+        normalizedName === "notion" ||
+        normalizedName.includes("workspace") ||
+        normalizedName === "n8n" ||
+        normalizedName.includes("sequential")
+
       let config: any
 
       if (isStdioServer) {
@@ -1050,9 +1059,9 @@ function AddServerDialog({
           // GitHub MCP server
           const token = apiKey || process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN
           if (!token) {
-            setTestResult({ 
-              success: false, 
-              message: "GitHub Personal Access Token required. Set GITHUB_PERSONAL_ACCESS_TOKEN environment variable or enter it in the API Key field." 
+            setTestResult({
+              success: false,
+              message: "GitHub Personal Access Token required. Set GITHUB_PERSONAL_ACCESS_TOKEN environment variable or enter it in the API Key field."
             })
             setTesting(false)
             return
@@ -1080,9 +1089,9 @@ function AddServerDialog({
           // Notion MCP server
           const notionKey = apiKey || process.env.NOTION_API_KEY
           if (!notionKey) {
-            setTestResult({ 
-              success: false, 
-              message: "Notion API key required. Get one from https://www.notion.so/my-integrations" 
+            setTestResult({
+              success: false,
+              message: "Notion API key required. Get one from https://www.notion.so/my-integrations"
             })
             setTesting(false)
             return
@@ -1098,13 +1107,13 @@ function AddServerDialog({
             },
           }
         } else if (serverId === "google-workspace" || normalizedName.includes("workspace")) {
-          // Google Workspace MCP server (OAuth2 - requires environment variables)
-          const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID
-          const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET
+          // Google Workspace MCP server (OAuth2 - use user-provided or environment variables)
+          const clientId = oauthClientId.trim() || process.env.GOOGLE_OAUTH_CLIENT_ID
+          const clientSecret = oauthClientSecret.trim() || process.env.GOOGLE_OAUTH_CLIENT_SECRET
           if (!clientId || !clientSecret) {
-            setTestResult({ 
-              success: false, 
-              message: "Google Workspace requires OAuth2 credentials. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET environment variables. Get credentials from Google Cloud Console." 
+            setTestResult({
+              success: false,
+              message: "Google Workspace requires OAuth2 credentials. Enter your OAuth Client ID and Client Secret above, or set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET environment variables. Get credentials from Google Cloud Console."
             })
             setTesting(false)
             return
@@ -1113,8 +1122,8 @@ function AddServerDialog({
             id: "google-workspace",
             name: name || "Google Workspace",
             transport: "stdio",
-            command: "uvx",
-            args: ["workspace-mcp", "--transport", "streamable-http"],
+            command: "python",
+            args: ["-m", "main", "--transport", "stdio"],
             env: {
               GOOGLE_OAUTH_CLIENT_ID: clientId,
               GOOGLE_OAUTH_CLIENT_SECRET: clientSecret,
@@ -1140,9 +1149,9 @@ function AddServerDialog({
             args: ["-y", "mcp-sequentialthinking-tools"],
           }
         } else {
-          setTestResult({ 
-            success: false, 
-            message: "Stdio transport requires server-specific configuration. Please configure the server properly." 
+          setTestResult({
+            success: false,
+            message: "Stdio transport requires server-specific configuration. Please configure the server properly."
           })
           setTesting(false)
           return
@@ -1157,9 +1166,9 @@ function AddServerDialog({
 
         // Skip URL validation if it's "stdio" (shouldn't happen here, but just in case)
         if (url.toLowerCase().trim() === "stdio") {
-          setTestResult({ 
-            success: false, 
-            message: "Stdio transport detected. Please use the proper server configuration for stdio-based servers." 
+          setTestResult({
+            success: false,
+            message: "Stdio transport detected. Please use the proper server configuration for stdio-based servers."
           })
           setTesting(false)
           return
@@ -1169,9 +1178,9 @@ function AddServerDialog({
         try {
           new URL(url)
         } catch (urlError) {
-          setTestResult({ 
-            success: false, 
-            message: `Invalid URL format: ${urlError instanceof Error ? urlError.message : "Please enter a valid URL (e.g., https://api.example.com/mcp)"}` 
+          setTestResult({
+            success: false,
+            message: `Invalid URL format: ${urlError instanceof Error ? urlError.message : "Please enter a valid URL (e.g., https://api.example.com/mcp)"}`
           })
           setTesting(false)
           return
@@ -1210,15 +1219,15 @@ function AddServerDialog({
       if (response.ok && data.status?.healthy) {
         setTestResult({ success: true, message: data.status.message || "Connection successful!" })
       } else {
-        setTestResult({ 
-          success: false, 
-          message: data.status?.message || data.error || "Connection failed" 
+        setTestResult({
+          success: false,
+          message: data.status?.message || data.error || "Connection failed"
         })
       }
     } catch (error) {
-      setTestResult({ 
-        success: false, 
-        message: error instanceof Error ? error.message : "Failed to test connection" 
+      setTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to test connection"
       })
     } finally {
       setTesting(false)
@@ -1227,14 +1236,14 @@ function AddServerDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     // Save API keys to localStorage for easy reuse
     const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
     if ((serverId === "github" || serverId.includes("github")) && apiKey) {
       localStorage.setItem("github_personal_access_token", apiKey.trim())
       console.log("GitHub token saved to localStorage")
     }
-    
+
     // Save Exa API key to localStorage if it's Exa Search
     if ((serverId === "exa" || serverId.includes("exa")) && apiKey) {
       localStorage.setItem("exa_api_key", apiKey.trim())
@@ -1245,72 +1254,85 @@ function AddServerDialog({
       localStorage.setItem("google_maps_api_key", apiKey.trim())
       console.log("Google Maps API key saved to localStorage")
     }
-    
+
     if ((serverId === "notion" || serverId.includes("notion")) && apiKey) {
       localStorage.setItem("notion_api_key", apiKey.trim())
       console.log("Notion API key saved to localStorage")
     }
-    
+
+    // Save Google OAuth credentials to localStorage
+    if ((serverId === "google-workspace" || serverId.includes("google-workspace") || serverId.includes("workspace")) && oauthClientId && oauthClientSecret) {
+      localStorage.setItem("google_oauth_client_id", oauthClientId.trim())
+      localStorage.setItem("google_oauth_client_secret", oauthClientSecret.trim())
+      console.log("Google OAuth credentials saved to localStorage")
+    }
+
     if (editingServer) {
       // TODO: Implement API call to update server
       console.log("Updating server:", { id: editingServer.id, name, url, apiKey, naturalLanguageInChat: true, logoFile })
-      
+
       // Update in localStorage for now
       const storedUserServers = localStorage.getItem("user_servers")
       const userServers = storedUserServers ? JSON.parse(storedUserServers) : []
-      const updatedServers = userServers.map((s: McpServer) => 
-        s.id === editingServer.id 
-          ? { ...s, name, url, apiKey: apiKey || s.apiKey, logoUrl: logoPreview || s.logoUrl }
-          : s
-      )
+      const updatedServers = userServers.map((s: McpServer) => {
+        const updated = { ...s, name, url, apiKey: apiKey || s.apiKey, logoUrl: logoPreview || s.logoUrl }
+        // Include OAuth credentials for Google Workspace
+        if ((serverId === "google-workspace" || serverId.includes("workspace")) && oauthClientId && oauthClientSecret) {
+          updated.config = {
+            ...(s.config || {}),
+            oauthClientId: oauthClientId.trim(),
+            oauthClientSecret: oauthClientSecret.trim(),
+          }
+        }
+        return updated
+      })
       localStorage.setItem("user_servers", JSON.stringify(updatedServers))
-      
+
       // Dispatch custom event to notify other components
       window.dispatchEvent(new Event("userServersUpdated"))
     } else {
       // Determine transport type
-    const normalizedName = name.toLowerCase().trim()
-    const isStdioServer = url === "stdio" || 
-                         normalizedName === "github" || 
-                         normalizedName === "playwright"
-      
+      const normalizedName = name.toLowerCase().trim()
+      const isStdioServer = url === "stdio" ||
+        normalizedName === "github" ||
+        normalizedName === "playwright"
+
       const transport = isStdioServer ? "stdio" : "http"
-      
+
       // Use data URL if available, otherwise use preview (which might be a URL)
       const finalLogoUrl = logoDataUrl || logoPreview || undefined
-      
+
       // Save server via API (will save to Supabase if authenticated, localStorage if not)
       try {
+        const requestBody: any = {
+          name: name.trim(),
+          url: url.trim(),
+          transport,
+          apiKey: apiKey?.trim() || undefined,
+          logoUrl: finalLogoUrl || undefined,
+          description: `Custom MCP server: ${name}`,
+        }
+
+        // Add OAuth credentials for Google Workspace
+        if ((normalizedName === "google-workspace" || normalizedName.includes("workspace")) && oauthClientId && oauthClientSecret) {
+          requestBody.oauthClientId = oauthClientId.trim()
+          requestBody.oauthClientSecret = oauthClientSecret.trim()
+        }
+
         const response = await fetch("/api/servers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: name.trim(),
-            url: url.trim(),
-            transport,
-            apiKey: apiKey?.trim() || undefined,
-            logoUrl: finalLogoUrl || undefined,
-            description: `Custom MCP server: ${name}`,
-          }),
+          body: JSON.stringify(requestBody),
         })
-        
         if (response.ok) {
           const data = await response.json()
           console.log("Added server:", data.server)
-          
-          // If not authenticated, also save to localStorage as fallback
-          if (!user && typeof window !== "undefined") {
-            const storedUserServers = localStorage.getItem("user_servers")
-            const userServers = storedUserServers ? JSON.parse(storedUserServers) : []
-            userServers.push(data.server)
-            localStorage.setItem("user_servers", JSON.stringify(userServers))
-          }
-          
+
           // Dispatch custom event to notify other components
           window.dispatchEvent(new Event("userServersUpdated"))
-          
+
           // Refresh server list
-          fetchServers()
+          onAdd()
         } else {
           const errorData = await response.json()
           console.error("Failed to add server:", errorData.error)
@@ -1321,7 +1343,7 @@ function AddServerDialog({
         alert(`Failed to add server: ${error instanceof Error ? error.message : "Unknown error"}`)
       }
     }
-    
+
     setOpen(false)
     setName("")
     setUrl("")
@@ -1402,7 +1424,7 @@ function AddServerDialog({
                   const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
                   const serverName = name.toLowerCase().trim()
                   const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-                  
+
                   if (knownServer?.transport === "stdio") {
                     return "stdio (uses stdio transport)"
                   }
@@ -1429,12 +1451,7 @@ function AddServerDialog({
                 type="button"
                 variant="outline"
                 onClick={handleTestConnection}
-                disabled={testing || !url || (() => {
-                  const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
-                  const serverName = name.toLowerCase().trim()
-                  const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-                  return knownServer?.transport === "stdio"
-                })()}
+                disabled={testing || !url}
                 className="shrink-0"
               >
                 {testing ? (
@@ -1461,9 +1478,8 @@ function AddServerDialog({
               return null
             })()}
             {testResult && (
-              <div className={`flex items-center gap-2 text-sm ${
-                testResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-              }`}>
+              <div className={`flex items-center gap-2 text-sm ${testResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                }`}>
                 {testResult.success ? (
                   <CheckCircle2 className="h-4 w-4" />
                 ) : (
@@ -1510,11 +1526,16 @@ function AddServerDialog({
                   setApiKey(e.target.value)
                   setApiKeyTestResult(null) // Clear test result when typing
                 }}
+                disabled={(() => {
+                  const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
+                  const serverName = name.toLowerCase().trim()
+                  return serverId.includes("google-workspace") || serverName.includes("workspace")
+                })()}
                 placeholder={(() => {
                   const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
                   const serverName = name.toLowerCase().trim()
                   const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-                  
+
                   if (serverId === "notion" || serverName.includes("notion")) {
                     return "Enter your Notion Integration Token"
                   }
@@ -1532,7 +1553,7 @@ function AddServerDialog({
                 const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
                 const serverName = name.toLowerCase().trim()
                 const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-                
+
                 // Show test button for servers that require API keys
                 if (knownServer?.requiresApiKey) {
                   return (
@@ -1558,10 +1579,66 @@ function AddServerDialog({
                 return null
               })()}
             </div>
+            {(() => {
+              const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
+              const serverName = name.toLowerCase().trim()
+              const isGoogleWorkspace = serverId.includes("google-workspace") || serverName.includes("workspace")
+
+              // Show OAuth fields for Google Workspace
+              if (isGoogleWorkspace) {
+                return (
+                  <>
+                    <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50">
+                      <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                      <p className="text-sm text-red-800 dark:text-red-200">
+                        API key testing is not available for Google Workspace. You can test the connection using the "Test" button next to the URL field.
+                      </p>
+                    </div>
+
+                    {/* OAuth Client ID */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="oauthClientId">OAuth Client ID (Required)</Label>
+                        <a
+                          href="https://console.cloud.google.com/apis/credentials"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline flex items-center gap-1"
+                        >
+                          Get from Google Cloud Console
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                      <Input
+                        id="oauthClientId"
+                        type="text"
+                        value={oauthClientId}
+                        onChange={(e) => setOauthClientId(e.target.value)}
+                        placeholder="Enter your OAuth Client ID"
+                        className="font-mono text-sm"
+                      />
+                    </div>
+
+                    {/* OAuth Client Secret */}
+                    <div className="space-y-2">
+                      <Label htmlFor="oauthClientSecret">OAuth Client Secret (Required)</Label>
+                      <Input
+                        id="oauthClientSecret"
+                        type="password"
+                        value={oauthClientSecret}
+                        onChange={(e) => setOauthClientSecret(e.target.value)}
+                        placeholder="Enter your OAuth Client Secret"
+                        className="font-mono text-sm"
+                      />
+                    </div>
+                  </>
+                )
+              }
+              return null
+            })()}
             {apiKeyTestResult && (
-              <div className={`flex items-center gap-2 text-sm ${
-                apiKeyTestResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-              }`}>
+              <div className={`flex items-center gap-2 text-sm ${apiKeyTestResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                }`}>
                 {apiKeyTestResult.success ? (
                   <CheckCircle2 className="h-4 w-4" />
                 ) : (
@@ -1576,7 +1653,7 @@ function AddServerDialog({
                 const serverName = name.toLowerCase().trim()
                 const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
                 const apiKeyLink = getApiKeyLink(name, editingServer?.id)
-                
+
                 if (serverId.includes("google-workspace") || serverName.includes("workspace")) {
                   return (
                     <>
@@ -1594,13 +1671,13 @@ function AddServerDialog({
                     </>
                   )
                 }
-                
+
                 if (apiKeyLink) {
                   const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
                   const serverName = name.toLowerCase().trim()
                   const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
                   const canTest = knownServer?.requiresApiKey
-                  
+
                   return (
                     <>
                       API key for authenticating with the server.{" "}
@@ -1618,7 +1695,7 @@ function AddServerDialog({
                     </>
                   )
                 }
-                
+
                 return "API key for authenticating with the server (if required)"
               })()}
             </p>
@@ -1628,14 +1705,13 @@ function AddServerDialog({
             <div className="flex items-center gap-4">
               {logoPreview && (
                 <div className="relative h-16 w-16 rounded-lg overflow-hidden border border-border">
-                  <img 
-                    src={logoPreview} 
-                    alt="Logo preview" 
-                    className={`h-full w-full object-contain ${
-                      editingServer?.id === "github" || name.toLowerCase() === "github"
-                        ? "dark:brightness-0 dark:invert"
-                        : ""
-                    }`}
+                  <img
+                    src={logoPreview}
+                    alt="Logo preview"
+                    className={`h-full w-full object-contain ${editingServer?.id === "github" || name.toLowerCase() === "github"
+                      ? "dark:brightness-0 dark:invert"
+                      : ""
+                      }`}
                   />
                   <button
                     type="button"
@@ -1681,9 +1757,9 @@ function AddServerDialog({
           </div>
           <div className="flex justify-between items-center">
             {editingServer && editingServer.type === "user" && (
-              <Button 
-                type="button" 
-                variant="destructive" 
+              <Button
+                type="button"
+                variant="destructive"
                 onClick={handleDelete}
                 className="flex items-center gap-2"
               >
@@ -1733,7 +1809,7 @@ function WorkerMonitoringSection() {
       const currentFailed = metricsData.tasks?.failed || 0
       const newProcessed = currentProcessed - lastMetrics.processed
       const newFailed = currentFailed - lastMetrics.failed
-      
+
       // Update last metrics for next calculation
       setLastMetrics({
         processed: currentProcessed,
