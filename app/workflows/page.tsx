@@ -1211,36 +1211,57 @@ export default function WorkflowsPage() {
                   {message.content && (
                     <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">
                       {(() => {
-                        // If imageUrl is present, filter out markdown image syntax from content
                         let processedContent = message.content
-                        if (message.imageUrl) {
-                          // Remove markdown image syntax like ![alt](url) or ![alt text](data:image/...)
-                          processedContent = processedContent.replace(/!\[([^\]]*)\]\([^)]+\)/g, '')
-                          // Also remove standalone image markdown that might be in the text
-                          processedContent = processedContent.replace(/\[Screenshot[^\]]*\]\([^)]+\)/g, '')
+
+                        // Helper to process a URL for OAuth/CSRF
+                        const processUrl = (url: string) => {
+                          if (url.includes("accounts.google.com/o/oauth2") && url.includes("state=")) {
+                            const encodedUrl = encodeURIComponent(url)
+                            return `/api/auth/oauth-start?url=${encodedUrl}`
+                          }
+                          return url
                         }
 
-                        return processedContent.split(/(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9]{1,6}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*))/g).map((part, index) => {
-                          if (part.match(/^https?:\/\//)) {
-                            // Check if this is a Google OAuth URL that needs CSRF protection
-                            let finalUrl = part
-                            if (part.includes("accounts.google.com/o/oauth2") && part.includes("state=")) {
-                              const encodedUrl = encodeURIComponent(part)
-                              finalUrl = `/api/auth/oauth-start?url=${encodedUrl}`
-                            }
+                        // Split by Markdown links first: [text](url)
+                        const markdownLinkRegex = /(\[[^\]]+\]\([^)]+\))/g
+                        return processedContent.split(markdownLinkRegex).map((part, index) => {
+                          const markdownMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+                          if (markdownMatch) {
+                            const text = markdownMatch[1]
+                            const url = markdownMatch[2]
+                            const finalUrl = processUrl(url)
+
                             return (
                               <a
                                 key={index}
-                                href={part}
+                                href={finalUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-primary underline hover:text-primary/80 break-all"
                               >
-                                {part}
+                                {text}
                               </a>
                             )
                           }
-                          return <span key={index}>{part}</span>
+
+                          // If not a markdown link, split by standalone URLs
+                          return part.split(/(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9]{1,6}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*))/g).map((subPart, subIndex) => {
+                            if (subPart.match(/^https?:\/\//)) {
+                              const finalUrl = processUrl(subPart)
+                              return (
+                                <a
+                                  key={`${index}-${subIndex}`}
+                                  href={finalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline hover:text-primary/80 break-all"
+                                >
+                                  {subPart}
+                                </a>
+                              )
+                            }
+                            return <span key={`${index}-${subIndex}`}>{subPart}</span>
+                          })
                         })
                       })()}
                     </div>
