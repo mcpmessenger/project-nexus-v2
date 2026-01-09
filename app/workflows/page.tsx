@@ -153,11 +153,19 @@ export default function WorkflowsPage() {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null)
   const recognitionRef = React.useRef<SpeechRecognition | null>(null)
   const autocompleteRef = React.useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: "smooth"
+      })
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }
   }
 
   React.useEffect(() => {
@@ -1154,7 +1162,10 @@ export default function WorkflowsPage() {
       )}
 
       {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto p-4 sm:p-6"
+      >
         <div className="mx-auto max-w-3xl space-y-2">
           {messages.length === 0 && (
             <div className="flex h-full items-center justify-center">
