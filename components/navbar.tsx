@@ -34,11 +34,11 @@ export function Navbar() {
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2">
             <Image
-              src="/nexus2.svg"
+              src="https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png"
               alt="Project Nexus"
-              width={28}
-              height={28}
-              className="h-7 w-7"
+              width={32}
+              height={32}
+              className="h-8 w-auto rounded-sm"
             />
             <span className="hidden text-lg font-semibold text-foreground sm:inline-block">Project Nexus</span>
           </Link>

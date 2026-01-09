@@ -1,6 +1,6 @@
 /**
  * Google Workspace MCP Adapter
- * Handles Google Workspace MCP server integration via uvx workspace-mcp
+ * Handles Google Workspace MCP server integration via python -m main
  * Requires OAuth2 credentials for authentication
  */
 
@@ -8,7 +8,7 @@ import type { ServerConfig } from "../lib/types.ts";
 
 /**
  * Ensure Google Workspace config has required OAuth2 credentials
- * These are passed via environment variables to the uvx process
+ * These are passed via environment variables to the Python process
  */
 export function ensureGoogleWorkspaceConfig(config: ServerConfig): ServerConfig {
   // Check for OAuth credentials in environment
@@ -25,8 +25,8 @@ export function ensureGoogleWorkspaceConfig(config: ServerConfig): ServerConfig 
     );
   }
 
-  // Ensure stdio transport with uvx command
-  if (config.transport === "stdio" && config.command === "uvx") {
+  // Ensure stdio transport with Python command
+  if (config.transport === "stdio" && config.command === "python") {
     // Ensure --transport streamable-http is in args
     const args = config.args || [];
     if (!args.includes("--transport") && !args.includes("streamable-http")) {
@@ -41,8 +41,8 @@ export function ensureGoogleWorkspaceConfig(config: ServerConfig): ServerConfig 
   // Default configuration
   return {
     transport: "stdio",
-    command: "uvx",
-    args: ["workspace-mcp", "--transport", "streamable-http"],
+    command: "python",
+    args: ["-m", "main", "--transport", "stdio"],
     env: {
       ...(config.env || {}),
       ...(clientId ? { GOOGLE_OAUTH_CLIENT_ID: clientId } : {}),

@@ -1175,7 +1175,7 @@ export default function WorkflowsPage() {
               {message.role === "assistant" && (
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 overflow-hidden">
                   <Image
-                    src="/nexus2.svg"
+                    src="https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png"
                     alt="Nexus"
                     width={32}
                     height={32}
@@ -1256,7 +1256,7 @@ export default function WorkflowsPage() {
             <div className="flex gap-3 justify-start">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 overflow-hidden">
                 <Image
-                  src="/nexus2.svg"
+                  src="https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png"
                   alt="Nexus"
                   width={32}
                   height={32}
