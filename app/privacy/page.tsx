@@ -56,7 +56,7 @@ export default function PrivacyPolicy() {
             <section className="mb-8">
                 <h2 className="text-2xl font-semibold mb-4">5. Contact Us</h2>
                 <p>
-                    If you have any questions about this Privacy Policy, please contact us at: <a href="mailto:privacy@project-nexus.io" className="text-primary hover:underline">privacy@project-nexus.io</a>
+                    If you have any questions about this Privacy Policy, please contact us at: <a href="mailto:greetings@automationalien.com" className="text-primary hover:underline">greetings@automationalien.com</a>
                 </p>
             </section>
         </div>

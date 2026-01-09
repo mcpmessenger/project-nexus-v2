@@ -52,7 +52,7 @@ export default function TermsOfService() {
             <section className="mb-8">
                 <h2 className="text-2xl font-semibold mb-4">7. Contact</h2>
                 <p>
-                    Questions about the Terms of Service should be sent to us at: <a href="mailto:support@project-nexus.io" className="text-primary hover:underline">support@project-nexus.io</a>
+                    Questions about the Terms of Service should be sent to us at: <a href="mailto:greetings@automationalien.com" className="text-primary hover:underline">greetings@automationalien.com</a>
                 </p>
             </section>
         </div>
