@@ -32,8 +32,8 @@ class OAuthConfig:
         self.external_url = os.getenv("WORKSPACE_EXTERNAL_URL")
 
         # OAuth client configuration
-        self.client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-        self.client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+        self.client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
+        self.client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
 
         # OAuth 2.1 configuration
         self.oauth21_enabled = (

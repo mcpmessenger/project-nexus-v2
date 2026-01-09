@@ -175,9 +175,9 @@ def load_client_secrets_from_env() -> Optional[Dict[str, Any]]:
         Client secrets configuration dict compatible with Google OAuth library,
         or None if required environment variables are not set.
     """
-    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    redirect_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI") or os.getenv("GOOGLE_REDIRECT_URI")
 
     if client_id and client_secret:
         # Create config structure that matches Google client secrets format

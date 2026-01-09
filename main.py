@@ -17,8 +17,15 @@ from core.tool_registry import (
     filter_server_tools,
 )
 
-dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-load_dotenv(dotenv_path=dotenv_path)
+# Load environment variables from .env and .env.local
+# Add project root to sys.path to ensure absolute imports work
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+# Load .env first, then .env.local to override
+load_dotenv(os.path.join(project_root, ".env"))
+load_dotenv(os.path.join(project_root, ".env.local"), override=True)
 
 # Suppress googleapiclient discovery cache warning
 logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
@@ -146,15 +153,15 @@ def main():
     safe_print("⚙️ Active Configuration:")
 
     # Redact client secret for security
-    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "Not Set")
+    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET", "Not Set")
     redacted_secret = (
         f"{client_secret[:4]}...{client_secret[-4:]}"
-        if len(client_secret) > 8
-        else "Invalid or too short"
+        if client_secret != "Not Set" and len(client_secret) > 8
+        else "Invalid or too short" if client_secret != "Not Set" else "Not Set"
     )
 
     config_vars = {
-        "GOOGLE_OAUTH_CLIENT_ID": os.getenv("GOOGLE_OAUTH_CLIENT_ID", "Not Set"),
+        "GOOGLE_OAUTH_CLIENT_ID": os.getenv("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID", "Not Set"),
         "GOOGLE_OAUTH_CLIENT_SECRET": redacted_secret,
         "USER_GOOGLE_EMAIL": os.getenv("USER_GOOGLE_EMAIL", "Not Set"),
         "MCP_SINGLE_USER_MODE": os.getenv("MCP_SINGLE_USER_MODE", "false"),
@@ -165,7 +172,7 @@ def main():
         "OAUTHLIB_INSECURE_TRANSPORT": os.getenv(
             "OAUTHLIB_INSECURE_TRANSPORT", "false"
         ),
-        "GOOGLE_CLIENT_SECRET_PATH": os.getenv("GOOGLE_CLIENT_SECRET_PATH", "Not Set"),
+        "GOOGLE_CLIENT_SECRET_PATH": os.getenv("GOOGLE_CLIENT_SECRET_PATH") or os.getenv("GOOGLE_CLIENT_SECRETS", "Not Set"),
     }
 
     for key, value in config_vars.items():
@@ -362,4 +369,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        with open("crash_log.txt", "w") as f:
+            f.write(f"CRASH AT STARTUP: {str(e)}\n")
+            import traceback
+            f.write(traceback.format_exc())
+        sys.exit(1)
