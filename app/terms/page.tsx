@@ -1,9 +1,17 @@
-
-import React from 'react';
+import Image from "next/image";
 
 export default function TermsOfService() {
     return (
         <div className="container mx-auto px-4 py-8 max-w-4xl text-foreground">
+            <div className="flex justify-center mb-8">
+                <Image
+                    src="/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"
+                    alt="Project Nexus Logo"
+                    width={80}
+                    height={80}
+                    className="rounded-xl"
+                />
+            </div>
             <h1 className="text-3xl font-bold mb-6">Terms of Service</h1>
             <p className="mb-4 text-sm text-muted-foreground">Last Updated: January 8, 2026</p>
 
