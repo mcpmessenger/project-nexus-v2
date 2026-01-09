@@ -311,7 +311,7 @@ def main():
             from auth.oauth_callback_server import ensure_oauth_callback_available
 
             success, error_msg = ensure_oauth_callback_available(
-                "stdio", 0, base_uri
+                "stdio", port, base_uri
             )
             if success:
                 # Retrieve the actual port from the config (updated by the server)
