@@ -39,6 +39,17 @@ class MinimalOAuthServer:
         self.port = port
         self.base_uri = base_uri
         self.app = FastAPI()
+        
+        # Add request logging middleware
+        @self.app.middleware("http")
+        async def log_requests(request: Request, call_next):
+            with open("callback_access.log", "a") as f:
+                f.write(f"REQUEST: {request.method} {request.url}\n")
+            response = await call_next(request)
+            with open("callback_access.log", "a") as f:
+                f.write(f"RESPONSE: {response.status_code}\n")
+            return response
+
         self.server = None
         self.server_thread = None
         self.is_running = False
