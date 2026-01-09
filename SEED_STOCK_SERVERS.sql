@@ -75,7 +75,7 @@ SET
 
 -- Google Workspace
 INSERT INTO system_servers (id, name, config, enabled, rate_limit_per_minute, logo_url) VALUES
-  ('google-workspace', 'Google Workspace', '{"transport": "stdio", "command": "python", "args": ["-m", "main", "--transport", "stdio"]}', true, 60, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg')
+  ('google-workspace', 'Google Workspace', '{"transport": "stdio", "command": "python", "args": ["-m", "main", "--transport", "stdio", "--port", "54321"]}', true, 60, 'https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg')
 ON CONFLICT (id) DO UPDATE
 SET
   name = EXCLUDED.name,

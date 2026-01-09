@@ -125,10 +125,15 @@ def main():
         default="stdio",
         help="Transport mode: stdio (default) or streamable-http",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        help="Port to listen on (overrides PORT and WORKSPACE_MCP_PORT env vars)",
+    )
     args = parser.parse_args()
 
     # Set port and base URI once for reuse throughout the function
-    port = int(os.getenv("PORT", os.getenv("WORKSPACE_MCP_PORT", 8000)))
+    port = args.port or int(os.getenv("PORT", os.getenv("WORKSPACE_MCP_PORT", 8000)))
     base_uri = os.getenv("WORKSPACE_MCP_BASE_URI", "http://localhost")
     external_url = os.getenv("WORKSPACE_EXTERNAL_URL")
     display_url = external_url if external_url else f"{base_uri}:{port}"

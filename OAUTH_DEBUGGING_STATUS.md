@@ -14,10 +14,14 @@ This document tracks the issues found and resolved during the troubleshooting of
 - **Fix**: Updated `main.py` and `auth/oauth_config.py` to support both naming conventions.
 
 ### 3. Zombie Processes ✅ Fixed
-- **Issue**: Port `54321` was being held by a "ghost" Python process from a previous crash/run, preventing the new callback server from binding.
-- **Fix**: Manually killed all `python.exe` processes and verified port availability.
+- **Issue**: Port `54321` was being held by a "ghost" Python process from a previous crash/run.
+- **Fix**: Manually killed all `python.exe` processes.
 
-### 4. Import & Path Issues ✅ Fixed
+### 4. Port Inconsistency ✅ Fixed
+- **Issue**: The server defaulted to port `8000` unless `PORT` env var was set, but the OAuth redirect URI expects `54321`.
+- **Fix**: Added `--port` argument to `main.py` and updated the database seed configuration to explicitly pass `--port 54321`.
+
+### 5. Import & Path Issues ✅ Fixed
 - **Issue**: Absolute imports were failing in the user's environment because the project root wasn't in `sys.path` when running as a module.
 - **Fix**: Added project root to `sys.path` dynamically in `main.py` and added support for `.env.local` loading.
 
