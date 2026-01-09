@@ -35,7 +35,7 @@ export function Navbar() {
         <div className="flex items-center gap-6">
           <Link href="/" className="flex items-center gap-2">
             <Image
-              src="/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"
+              src="/nexus2.svg"
               alt="Project Nexus"
               width={28}
               height={28}
@@ -100,7 +100,7 @@ export function Navbar() {
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
                 </DropdownMenuItem>
-                <DropdownMenuItem 
+                <DropdownMenuItem
                   className="text-destructive"
                   onClick={() => signOut()}
                 >
@@ -110,7 +110,7 @@ export function Navbar() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <HoverIconButton 
+            <HoverIconButton
               onClick={() => setSettingsOpen(true)}
               className="h-9 w-9"
               title="Settings"

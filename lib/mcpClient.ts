@@ -1,5 +1,6 @@
 import { spawn } from "child_process"
 import { playwrightMcpManager } from "./playwright-client"
+import { stdioClientManager } from "./stdio-client-manager"
 
 type TransportType = "http" | "stdio"
 
@@ -49,7 +50,7 @@ export interface McpHealthResponse {
   lastUpdatedAt?: number
 }
 
-interface JsonRpcEnvelope {
+export interface JsonRpcEnvelope {
   jsonrpc: "2.0"
   id: string
   method: string
@@ -63,7 +64,7 @@ function enhanceMapsResponse(data: any): any {
   if (!data || typeof data !== 'object') {
     return data
   }
-  
+
   // If data has a places array, enhance each place
   if (Array.isArray(data.places)) {
     return {
@@ -71,17 +72,17 @@ function enhanceMapsResponse(data: any): any {
       places: data.places.map((place: any) => enhancePlace(place)),
     }
   }
-  
+
   // If data itself is a place object, enhance it
   if (data.place || data.id || data.location) {
     return enhancePlace(data)
   }
-  
+
   // Recursively enhance nested objects
   if (Array.isArray(data)) {
     return data.map((item) => enhanceMapsResponse(item))
   }
-  
+
   const enhanced: any = {}
   for (const [key, value] of Object.entries(data)) {
     if (value && typeof value === 'object') {
@@ -100,20 +101,20 @@ function enhancePlace(place: any): any {
   if (!place || typeof place !== 'object') {
     return place
   }
-  
+
   let mapsUrl: string | undefined
-  
+
   // Priority 1: Use place_id if available (most reliable)
   if (place.place) {
-    const placeId = typeof place.place === 'string' 
-      ? place.place.replace(/^places\//, '') 
+    const placeId = typeof place.place === 'string'
+      ? place.place.replace(/^places\//, '')
       : String(place.place)
     mapsUrl = `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(placeId)}`
   } else if (place.id) {
     // Use place ID directly
     mapsUrl = `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(place.id)}`
   }
-  
+
   // Priority 2: Use coordinates + name if available
   if (!mapsUrl && place.location && place.displayName) {
     const lat = place.location.latitude
@@ -125,19 +126,19 @@ function enhancePlace(place: any): any {
     const lng = place.location.longitude
     mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
   }
-  
+
   // Priority 3: Use formatted address
   if (!mapsUrl && place.formattedAddress) {
     const address = encodeURIComponent(place.formattedAddress)
     mapsUrl = `https://www.google.com/maps/search/?api=1&query=${address}`
   }
-  
+
   // Priority 4: Use address components if available
   if (!mapsUrl && place.address) {
     const address = encodeURIComponent(place.address)
     mapsUrl = `https://www.google.com/maps/search/?api=1&query=${address}`
   }
-  
+
   // Add the mapsUrl to the place object if we created one
   if (mapsUrl) {
     return {
@@ -146,11 +147,11 @@ function enhancePlace(place: any): any {
       mapsUrl: mapsUrl, // Alias for convenience
     }
   }
-  
+
   return place
 }
 
-interface JsonRpcResponse<T = unknown> {
+export interface JsonRpcResponse<T = unknown> {
   jsonrpc: "2.0"
   id?: string
   result?: T
@@ -250,7 +251,7 @@ export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerCon
   if (!trimmedKey.startsWith("AIza")) {
     throw new Error(`Invalid Google Maps API key format. Key should start with "AIza". It looks like you may have pasted a curl command instead of just the API key. Please go to Settings and enter only the API key (e.g., AIzaSy...).`)
   }
-  
+
   if (trimmedKey.length < 30 || trimmedKey.length > 200) {
     console.warn(`[MCP Client] Warning: Google Maps API key length (${trimmedKey.length}) seems unusual. Expected ~39 characters.`)
   }
@@ -277,8 +278,8 @@ export function ensureManagedGoogleConfig(config: McpServerConfig): McpServerCon
   } else {
     console.log(
       `[MCP Client] No X-Goog-User-Project header specified. ` +
-        `Using API key's default project. If you need to bill to a different project, ` +
-        `set X-Goog-User-Project header or GOOGLE_MAPS_GROUNDING_USER_PROJECT env var.`
+      `Using API key's default project. If you need to bill to a different project, ` +
+      `set X-Goog-User-Project header or GOOGLE_MAPS_GROUNDING_USER_PROJECT env var.`
     )
   }
 
@@ -303,11 +304,11 @@ export function validateManagedServerConfig(config: McpServerConfig) {
       throw new Error("Google Maps Grounding Lite requires an API key header")
     }
   }
-  
+
 }
 
 export class McpClient {
-  constructor(public config: McpServerConfig) {}
+  constructor(public config: McpServerConfig) { }
 
   async listTools(): Promise<ToolSchema[]> {
     const cached = getCachedToolSchema(this.config.id)
@@ -338,6 +339,12 @@ export class McpClient {
       if (this.config.id === "playwright") {
         return playwrightMcpManager.call(payload, this.config)
       }
+
+      // Use persistent manager for Google Workspace to handle initialization handshake and keep process alive
+      if (this.config.id === "google-workspace" || this.config.command?.includes("python") || this.config.command?.includes("workspace-mcp")) {
+        return stdioClientManager.call(payload, this.config)
+      }
+
       // Use stateless transport for other servers
       return callStdioTransport(this.config, payload)
     }
@@ -346,28 +353,28 @@ export class McpClient {
     if (!this.config.url) {
       throw new Error("HTTP transport requires a target URL")
     }
-    
+
     // Check if this is a REST-based MCP server (LangChain, etc.) vs SSE-based
     // REST servers typically have /mcp/invoke endpoint, SSE servers use the base URL
     const urlLower = this.config.url.toLowerCase()
     const idLower = this.config.id?.toLowerCase() || ''
     const nameLower = this.config.name?.toLowerCase() || ''
-    
-    const isRestServer = urlLower.includes('/mcp/invoke') || 
-                        urlLower.includes('/invoke') ||
-                        urlLower.includes('langchain') || 
-                        urlLower.includes('exa.ai') ||
-                        idLower.includes('langchain') ||
-                        idLower.includes('exa') ||
-                        nameLower.includes('langchain') ||
-                        nameLower.includes('langchain agent') ||
-                        nameLower.includes('exa')
-    
+
+    const isRestServer = urlLower.includes('/mcp/invoke') ||
+      urlLower.includes('/invoke') ||
+      urlLower.includes('langchain') ||
+      urlLower.includes('exa.ai') ||
+      idLower.includes('langchain') ||
+      idLower.includes('exa') ||
+      nameLower.includes('langchain') ||
+      nameLower.includes('langchain agent') ||
+      nameLower.includes('exa')
+
     if (isRestServer) {
       console.log(`[MCP Client] Using REST transport for server: ${this.config.name} (${this.config.url})`)
       return callRestTransport(this.config, payload)
     }
-    
+
     console.log(`[MCP Client] Using SSE transport for server: ${this.config.name} (${this.config.url})`)
     return callSseTransport(this.config, payload)
   }
@@ -379,17 +386,17 @@ export class McpClient {
         const urlLower = this.config.url.toLowerCase()
         const idLower = this.config.id?.toLowerCase() || ''
         const nameLower = this.config.name?.toLowerCase() || ''
-        
-        const isRestServer = urlLower.includes('/mcp/invoke') || 
-                            urlLower.includes('/invoke') ||
-                            urlLower.includes('langchain') || 
-                            urlLower.includes('exa.ai') ||
-                            idLower.includes('langchain') ||
-                            idLower.includes('exa') ||
-                            nameLower.includes('langchain') ||
-                            nameLower.includes('langchain agent') ||
-                            nameLower.includes('exa')
-        
+
+        const isRestServer = urlLower.includes('/mcp/invoke') ||
+          urlLower.includes('/invoke') ||
+          urlLower.includes('langchain') ||
+          urlLower.includes('exa.ai') ||
+          idLower.includes('langchain') ||
+          idLower.includes('exa') ||
+          nameLower.includes('langchain') ||
+          nameLower.includes('langchain agent') ||
+          nameLower.includes('exa')
+
         if (isRestServer) {
           // Try the /health endpoint for REST servers
           const baseUrl = this.config.url.replace(/\/mcp\/invoke.*$/, '').replace(/\/$/, '')
@@ -401,12 +408,12 @@ export class McpClient {
                 ...this.config.headers,
               },
             })
-            
+
             if (healthResponse.ok) {
               const healthData = await healthResponse.json()
               return {
                 healthy: true,
-                message: healthData.status === "running" 
+                message: healthData.status === "running"
                   ? `Server is running (${healthData.name || 'LangChain MCP Server'})`
                   : `Server responded: ${JSON.stringify(healthData)}`,
                 lastUpdatedAt: Date.now(),
@@ -418,7 +425,7 @@ export class McpClient {
           }
         }
       }
-      
+
       // Default: try to list tools
       const tools = await this.listTools()
       return {
@@ -459,7 +466,7 @@ async function callStdioTransport(config: McpServerConfig, payload: JsonRpcEnvel
     // On Windows, npx needs to be run through the shell or as npx.cmd
     const isWindows = process.platform === "win32"
     const command = isWindows && config.command === "npx" ? "npx.cmd" : config.command
-    
+
     const proc = spawn(command, config.args ?? [], {
       env: { ...process.env, ...(config.env ?? {}) },
       stdio: ["pipe", "pipe", "pipe"],
@@ -490,7 +497,7 @@ async function callStdioTransport(config: McpServerConfig, payload: JsonRpcEnvel
     proc.on("close", (code) => {
       if (code !== 0) {
         console.error(`[MCP Stdio] Process exited with code ${code}. Server: ${config.id || 'unknown'}, Command: ${config.command} ${(config.args || []).slice(0, 2).join(" ")}...`)
-        console.error(`[MCP Stdio] Full command: ${config.command} ${(config.args || []).map((arg, idx) => 
+        console.error(`[MCP Stdio] Full command: ${config.command} ${(config.args || []).map((arg, idx) =>
           (arg === '--brave-api-key' && config.args?.[idx + 1]) ? '--brave-api-key <REDACTED>' : arg
         ).join(" ")}`)
         console.error(`[MCP Stdio] stderr output:`, stderr.trim() || "<none>")
@@ -539,7 +546,7 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
   const projectIdValue = headersToSend["X-Goog-User-Project"] || headersToSend["x-goog-user-project"]
   const hasProjectId = !!projectIdValue
   console.log(`[MCP Client] Headers being sent: X-Goog-Api-Key: ${hasApiKey ? 'PRESENT' : 'MISSING'}, X-Goog-User-Project: ${hasProjectId ? projectIdValue : 'MISSING'}`)
-  
+
   const response = await fetch(config.url, {
     method: "POST",
     headers: headersToSend,
@@ -549,24 +556,24 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
   // Check if response is actually JSON (Google Maps returns JSON even when Accept: text/event-stream)
   const contentType = response.headers.get("content-type") || ""
   const isJsonResponse = contentType.includes("application/json")
-  
+
   if (!response.ok) {
     const bodyText = await response.text().catch(() => 'Unable to read response body')
     const bodyPreview = typeof bodyText === 'string' && bodyText.length > 0 ? bodyText.substring(0, 500) : String(bodyText || 'empty response')
-    
+
     // Try to parse as JSON to extract helpful error messages (especially for Google Maps)
     if (isJsonResponse && typeof bodyText === 'string' && bodyText.length > 0) {
       try {
         const errorJson = JSON.parse(bodyText)
-        
+
         // Check for Google Maps error format (result with isError: true)
         if (errorJson.result && typeof errorJson.result === 'object' && errorJson.result.isError === true) {
-          const errorText = errorJson.result.content?.find((c: any) => c.type === "text")?.text || 
-                           JSON.stringify(errorJson.result)
-          
+          const errorText = errorJson.result.content?.find((c: any) => c.type === "text")?.text ||
+            JSON.stringify(errorJson.result)
+
           // Provide helpful guidance for common Maps API errors
-          if (typeof errorText === 'string' && (errorText.includes("Maps Grounding Lite API has not been used") || 
-              errorText.includes("disabled via MCP policy"))) {
+          if (typeof errorText === 'string' && (errorText.includes("Maps Grounding Lite API has not been used") ||
+            errorText.includes("disabled via MCP policy"))) {
             throw new Error(
               `Maps Grounding Lite API is not enabled for your Google Cloud project.\n\n` +
               `To fix this:\n` +
@@ -577,10 +584,10 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
               `Original error: ${errorText}`
             )
           }
-          
+
           throw new Error(typeof errorText === 'string' ? errorText : String(errorText))
         }
-        
+
         // Check for standard JSON-RPC error format
         if (errorJson.error) {
           throw new Error(errorJson.error.message || JSON.stringify(errorJson.error))
@@ -589,7 +596,7 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
         // If JSON parsing fails, fall through to generic error
       }
     }
-    
+
     // Generic error for non-JSON or unparseable responses
     throw new Error(
       `MCP HTTP transport responded with ${response.status}. Body: ${bodyPreview}`
@@ -609,7 +616,7 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
       console.error(`[MCP Client] Error reading response body:`, textError)
       bodyText = 'Unable to read response body'
     }
-    
+
     let jsonData: any
     try {
       jsonData = JSON.parse(bodyText || '{}')
@@ -619,20 +626,20 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
       console.error(`[MCP Client] Failed to parse JSON. Status: ${response.status}, Body preview: ${preview}`)
       throw new Error(`Failed to parse JSON response from Maps API. Status: ${response.status}. Body: ${preview}`)
     }
-    
+
     // Check for standard JSON-RPC error format
     if (jsonData?.error) {
       const errorMsg = jsonData.error.message || JSON.stringify(jsonData.error)
       throw new Error(typeof errorMsg === 'string' ? errorMsg : String(errorMsg))
     }
-    
+
     // Check for Google Maps error format (result with isError: true)
     if (jsonData?.result && typeof jsonData.result === 'object' && jsonData.result.isError === true) {
-      const errorText = jsonData.result.content?.find((c: any) => c.type === "text")?.text || 
-                       JSON.stringify(jsonData.result)
+      const errorText = jsonData.result.content?.find((c: any) => c.type === "text")?.text ||
+        JSON.stringify(jsonData.result)
       throw new Error(typeof errorText === 'string' ? errorText : String(errorText))
     }
-    
+
     // Handle Google Maps response format: result.content[0].text contains JSON string
     if (jsonData?.result && typeof jsonData.result === 'object' && Array.isArray(jsonData.result.content)) {
       const textContent = jsonData.result.content.find((c: any) => c.type === "text")
@@ -654,7 +661,7 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
           }
           // Enhance place data with proper Google Maps URLs
           const enhancedContent = enhanceMapsResponse(parsedContent)
-          
+
           console.log(`[MCP Client] ✅ Returning parsed content (type: ${typeof enhancedContent}, keys: ${typeof enhancedContent === 'object' && enhancedContent !== null ? Object.keys(enhancedContent).length : 'N/A'})`)
           // Wrap in JsonRpcResponse structure so invokeToolByName can access response.result
           return {
@@ -676,7 +683,7 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
         console.log(`[MCP Client] No text content found in Maps API response. Content array length: ${jsonData.result.content?.length || 0}`)
       }
     }
-    
+
     // Wrap in JsonRpcResponse structure if not already wrapped
     if (jsonData?.jsonrpc === "2.0" && jsonData?.result !== undefined) {
       return jsonData
@@ -692,7 +699,7 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
   if (!response.body) {
     throw new Error("Response body is null or undefined")
   }
-  
+
   const parsed = await readSseJson(response.body)
   if (parsed.error) {
     throw new Error(parsed.error.message || 'Unknown SSE error')
@@ -769,15 +776,15 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
   }
 
   // Check if this is LangChain server (uses different API format)
-  const isLangChain = config.id?.toLowerCase().includes('langchain') || 
-                      config.name?.toLowerCase().includes('langchain') ||
-                      config.url.toLowerCase().includes('langchain')
-  
+  const isLangChain = config.id?.toLowerCase().includes('langchain') ||
+    config.name?.toLowerCase().includes('langchain') ||
+    config.url.toLowerCase().includes('langchain')
+
   // Check if this is Exa server (uses standard JSON-RPC at base URL)
-  const isExa = config.id?.toLowerCase().includes('exa') || 
-                config.name?.toLowerCase().includes('exa') ||
-                config.url.toLowerCase().includes('exa.ai')
-  
+  const isExa = config.id?.toLowerCase().includes('exa') ||
+    config.name?.toLowerCase().includes('exa') ||
+    config.url.toLowerCase().includes('exa.ai')
+
   // For REST-based MCP servers, determine the correct endpoint
   let invokeUrl = config.url
   if (isExa) {
@@ -797,7 +804,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       // Try using the base URL with /tools endpoint for listing
       const baseUrl = config.url.replace(/\/mcp\/invoke.*$/, '').replace(/\/$/, '')
       const toolsUrl = `${baseUrl}/tools`
-      
+
       console.log(`[MCP Client] Trying GET ${toolsUrl} for LangChain tools list`)
       try {
         const toolsResponse = await fetch(toolsUrl, {
@@ -807,9 +814,9 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
             ...config.headers,
           },
         })
-        
+
         console.log(`[MCP Client] GET /tools response status: ${toolsResponse.status}`)
-        
+
         if (toolsResponse.ok) {
           const toolsData = await toolsResponse.json()
           console.log(`[MCP Client] ✅ Got tools from /tools endpoint:`, JSON.stringify(toolsData).substring(0, 500))
@@ -838,7 +845,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
         // Fall through to try /mcp/invoke with converted format
         console.log(`[MCP Client] /tools endpoint failed:`, e instanceof Error ? e.message : e)
       }
-      
+
       // Server now supports /tools endpoint (as of Dec 26, 2024 update)
       // If /tools returned 404, the endpoint might not be available yet
       // Return empty array - client will use hardcoded tool as fallback
@@ -854,26 +861,26 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       // Convert tools/call to LangChain format
       const toolName = (payload.params as any)?.name || ""
       const toolArgs = (payload.params as any)?.arguments || {}
-      
+
       // For LangChain agent tool, use "agent_executor" as per the documentation
       // Reference: https://github.com/mcpmessenger/langchain-mcp
       if (toolName === "agent" || toolName === "langchain_agent" || toolName === "agent_executor") {
         const query = toolArgs.query || toolArgs.input || JSON.stringify(toolArgs)
         const queryStr = typeof query === 'string' ? query : JSON.stringify(query)
-        
+
         // According to the documentation, the tool name is "agent_executor"
         // Server has been fixed (Dec 26, 2024) to properly handle system_instruction parameter
         // Build arguments - system_instruction is now supported (optional)
         const argumentsObj: any = {
           query: queryStr,
         }
-        
+
         // Include system_instruction if provided (server now handles it correctly)
         if (toolArgs.system_instruction && typeof toolArgs.system_instruction === 'string' && toolArgs.system_instruction.trim()) {
           argumentsObj.system_instruction = toolArgs.system_instruction.trim()
           console.log(`[MCP Client] Including system_instruction in request`)
         }
-        
+
         console.log(`[MCP Client] LangChain tool invocation - using "agent_executor" with query: ${queryStr.substring(0, 100)}`)
         requestBody = {
           tool: "agent_executor", // Correct tool name per documentation
@@ -899,32 +906,32 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
 
   console.log(`[MCP Client] Making REST request to: ${invokeUrl}`)
   console.log(`[MCP Client] Request body:`, JSON.stringify(requestBody).substring(0, 500))
-  
+
   // Exa requires both application/json and text/event-stream in Accept header
-  const acceptHeader = isExa 
+  const acceptHeader = isExa
     ? "application/json, text/event-stream"
     : "application/json"
-  
+
   // Build headers - Accept must come after config.headers to ensure it's not overridden
   const headers = {
     "Content-Type": "application/json",
     ...config.headers,
     Accept: acceptHeader, // Set Accept last to ensure it's not overridden by config.headers
   }
-  
+
   const response = await fetch(invokeUrl, {
     method: "POST",
     headers,
     body: JSON.stringify(requestBody),
   })
-  
+
   console.log(`[MCP Client] Response status: ${response.status} ${response.statusText}`)
 
   if (!response.ok) {
     const bodyText = await response.text()
     console.log(`[MCP Client] Request body sent:`, JSON.stringify(requestBody).substring(0, 500))
     console.log(`[MCP Client] Response status: ${response.status}, body: ${bodyText.substring(0, 500)}`)
-    
+
     // Try to parse error response for better error messages
     let errorMessage = bodyText
     try {
@@ -945,13 +952,13 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       // If parsing fails, use the raw body text
       console.log(`[MCP Client] Could not parse error response as JSON, using raw text`)
     }
-    
+
     // For LangChain servers, provide more context about connection errors
     if (isLangChain && errorMessage.includes("Connection error")) {
       errorMessage = `LangChain server connection error: The server is unable to connect to its dependencies (likely OpenAI API or other services). This is a server-side issue. Error: ${errorMessage}`
       console.error(`[MCP Client] ⚠️ LangChain server connection error detected. This indicates the server cannot reach its required services.`)
     }
-    
+
     // For LangChain servers, if "run" fails, try without tool name (direct query)
     if (isLangChain && response.status === 400 && bodyText.includes("Unknown tool")) {
       console.log(`[MCP Client] "run" tool not recognized, trying direct query format`)
@@ -959,7 +966,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       const directRequestBody = {
         query: (requestBody as any)?.arguments?.query || (requestBody as any)?.arguments?.input || "",
       }
-      
+
       const directResponse = await fetch(invokeUrl, {
         method: "POST",
         headers: {
@@ -969,7 +976,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
         },
         body: JSON.stringify(directRequestBody),
       })
-      
+
       if (directResponse.ok) {
         const directParsed = await directResponse.json()
         return {
@@ -979,7 +986,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
         }
       }
     }
-    
+
     throw new Error(
       `MCP REST transport responded with ${response.status}. ${errorMessage}`
     )
@@ -988,12 +995,12 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
   // REST servers return JSON directly, not SSE
   // Exa returns SSE format even with REST transport when Accept includes text/event-stream
   const contentType = response.headers.get("content-type") || ""
-  
+
   // Handle Exa's SSE response format
   if (isExa && (contentType.includes("text/event-stream") || contentType.includes("text/plain"))) {
     const text = await response.text()
     console.log(`[MCP Client] Exa returned SSE format, parsing...`)
-    
+
     // Parse SSE format: "event: message\ndata: {...}"
     const lines = text.split('\n')
     let dataLine = ''
@@ -1003,11 +1010,11 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
         break
       }
     }
-    
+
     if (!dataLine) {
       throw new Error(`Failed to parse REST response: ${text.substring(0, 200)}`)
     }
-    
+
     try {
       const parsed = JSON.parse(dataLine)
       const jsonRpcResponse = parsed as JsonRpcResponse
@@ -1019,10 +1026,10 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       throw new Error(`Failed to parse REST response: ${text.substring(0, 200)}`)
     }
   }
-  
+
   if (contentType.includes("application/json")) {
     const parsed = await response.json()
-    
+
     // LangChain server returns a different format - convert to JSON-RPC format
     if (isLangChain && payload.method === "tools/list") {
       // LangChain might return { tools: [...] } or just [...]
@@ -1042,21 +1049,21 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       // For LangChain tool call responses, the server returns the result directly
       // The response might be in different formats, so handle all cases
       console.log(`[MCP Client] LangChain response format:`, JSON.stringify(parsed).substring(0, 500))
-      
+
       // The response might be:
       // - { result: "..." } 
       // - { content: "..." }
       // - { output: "..." }
       // - Just the string directly
       // - { error: "..." }
-      
+
       if (parsed.error) {
         throw new Error(parsed.error.message || parsed.error || JSON.stringify(parsed.error))
       }
-      
+
       // Extract the actual result/content
       const result = parsed.result || parsed.content || parsed.output || parsed.response || parsed
-      
+
       // If result is an object with content array (MCP format), extract it
       if (result && typeof result === 'object' && Array.isArray(result.content)) {
         return {
@@ -1068,7 +1075,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
           },
         }
       }
-      
+
       // Otherwise return as-is
       return {
         jsonrpc: "2.0",
@@ -1088,7 +1095,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
     const text = await response.text()
     try {
       const parsed = JSON.parse(text)
-      
+
       // Handle LangChain format
       if (isLangChain && payload.method === "tools/list") {
         const tools = Array.isArray(parsed) ? parsed : (parsed.tools || [])
@@ -1104,7 +1111,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
           },
         }
       }
-      
+
       const jsonRpcResponse = parsed as JsonRpcResponse
       if (jsonRpcResponse.error) {
         throw new Error(jsonRpcResponse.error.message)
