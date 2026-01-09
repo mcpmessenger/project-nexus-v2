@@ -217,6 +217,11 @@ For major changes, please open an issue first to discuss what you'd like to chan
 
 See LICENSE file for details.
 
+## Legal
+
+- [Privacy Policy](app/privacy/page.tsx)
+- [Terms of Service](app/terms/page.tsx)
+
 ## Support
 
 - **Issues**: [Open an issue on GitHub](https://github.com/mcpmessenger/project-nexus-v2/issues)

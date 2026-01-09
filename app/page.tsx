@@ -135,7 +135,7 @@ export default function LandingPage() {
             <div className="py-6">
               <Marquee pauseOnHover className="[--duration:30s]">
                 {mcpServers.map((server, i) => {
-                  const href = server.serverId 
+                  const href = server.serverId
                     ? `/monitoring?server=${server.serverId}`
                     : "/monitoring"
                   const isGitHub = server.serverId === "github"
@@ -151,9 +151,8 @@ export default function LandingPage() {
                         alt={server.name}
                         width={isN8n ? 80 : 48}
                         height={isN8n ? 80 : 48}
-                        className={`${isN8n ? "h-20 w-20" : "h-12 w-12"} object-contain opacity-100 hover:opacity-90 transition-opacity ${
-                          isGitHub ? "dark:brightness-0 dark:invert" : ""
-                        }`}
+                        className={`${isN8n ? "h-20 w-20" : "h-12 w-12"} object-contain opacity-100 hover:opacity-90 transition-opacity ${isGitHub ? "dark:brightness-0 dark:invert" : ""
+                          }`}
                       />
                     </Link>
                   )
@@ -258,95 +257,11 @@ export default function LandingPage() {
                 </Link>
               </Button>
             </div>
-            <p className="mt-6 text-sm text-muted-foreground">Free forever • Open source • Self-hostable</p>
+
           </div>
         </section>
 
-        {/* Footer */}
-        <footer className="border-t border-border bg-background px-6 py-12">
-          <div className="mx-auto max-w-screen-xl">
-            <div className="grid gap-8 md:grid-cols-4">
-              {/* Brand */}
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-2">
-                  <Image
-                    src="/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"
-                    alt="Project Nexus"
-                    width={24}
-                    height={24}
-                  />
-                  <span className="text-sm font-semibold text-foreground">Project Nexus v2</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Give your AI hands. Connect any tool to any model.
-                </p>
-              </div>
 
-              {/* Product */}
-              <div className="flex flex-col gap-3">
-                <h3 className="text-sm font-semibold text-foreground">Product</h3>
-                <div className="flex flex-col gap-2">
-                  <Link
-                    href="/workflows"
-                    className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    Workflows
-                  </Link>
-                  <Link
-                    href="/monitoring"
-                    className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    Monitoring
-                  </Link>
-                </div>
-              </div>
-
-              {/* Resources */}
-              <div className="flex flex-col gap-3">
-                <h3 className="text-sm font-semibold text-foreground">Resources</h3>
-                <div className="flex flex-col gap-2">
-                  <Link
-                    href="https://github.com/mcpmessenger/project-nexus-v2"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <Github className="h-4 w-4" />
-                    GitHub
-                    <ExternalLink className="h-3 w-3" />
-                  </Link>
-                  <Link
-                    href="https://github.com/mcpmessenger/project-nexus-v2"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    Documentation
-                  </Link>
-                </div>
-              </div>
-
-              {/* Built With */}
-              <div className="flex flex-col gap-3">
-                <h3 className="text-sm font-semibold text-foreground">Built With</h3>
-                <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-                  <span>Apache Pulsar</span>
-                  <span>Next.js</span>
-                  <span>Supabase</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-8 border-t border-border pt-8">
-              <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
-                <p className="text-sm text-muted-foreground">
-                  © {new Date().getFullYear()} Project Nexus. All rights reserved.
-                </p>
-                <p className="text-sm text-muted-foreground">Version 2.0</p>
-              </div>
-            </div>
-          </div>
-        </footer>
       </div>
     </>
   )
