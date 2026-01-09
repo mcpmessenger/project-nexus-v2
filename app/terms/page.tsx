@@ -11,7 +11,7 @@ export default function TermsOfService() {
             <div className="flex justify-center mb-8">
                 <Link href="/">
                     <Image
-                        src="/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"
+                        src="https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png"
                         alt="Project Nexus Logo"
                         width={80}
                         height={80}

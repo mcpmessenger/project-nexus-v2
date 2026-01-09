@@ -62,7 +62,7 @@ export const metadata: Metadata = {
     description: "Multi-tenant event-driven orchestrator powered by Apache Pulsar. Route messages with LLM intelligence, process documents with modern AI vision, and execute tools via MCP.",
     images: [
       {
-        url: "/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png",
+        url: "https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png",
         width: 1200,
         height: 630,
         alt: "Nexus - Intelligent Workflow Orchestration",
@@ -73,7 +73,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Nexus - Intelligent Workflow Orchestration",
     description: "Multi-tenant event-driven orchestrator powered by Apache Pulsar with LLM routing and AI vision.",
-    images: ["/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"],
+    images: ["https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png"],
     creator: "@projectnexus",
   },
   robots: {
@@ -90,12 +90,12 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: "/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png",
+        url: "https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png",
         sizes: "32x32",
         type: "image/png",
       },
       {
-        url: "/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png",
+        url: "https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png",
         sizes: "192x192",
         type: "image/png",
       },
@@ -106,12 +106,12 @@ export const metadata: Metadata = {
     ],
     apple: [
       {
-        url: "/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png",
+        url: "https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png",
         sizes: "180x180",
         type: "image/png",
       },
     ],
-    shortcut: "/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png",
+    shortcut: "https://automationalien.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jun+23%2C+2025%2C+03_53_12+PM.png",
   },
   manifest: "/manifest.json",
   category: "technology",
