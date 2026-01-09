@@ -4,7 +4,6 @@ import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { useAuth } from "./auth-provider"
-import { useTheme } from "./theme-provider"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -15,13 +14,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Activity, LayoutDashboard, Network, LogOut, Moon, Sun, MessageSquare, Settings, Plus } from "lucide-react"
+import { Activity, LogOut, MessageSquare, Settings, Plus } from "lucide-react"
+import { ModeToggle } from "@/components/mode-toggle"
 import { ApiKeysSettings } from "@/components/settings-keys"
 import { HoverIconButton } from "@/components/ui/hover-icon-button"
 
 export function Navbar() {
   const { user, signOut } = useAuth()
-  const { theme, toggleTheme } = useTheme()
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const pathname = usePathname()
 
@@ -69,9 +68,7 @@ export function Navbar() {
 
         <div className="flex items-center gap-2">
           <div suppressHydrationWarning>
-            <HoverIconButton onClick={toggleTheme} className="h-9 w-9" title="Toggle theme">
-              {theme === "light" ? <Moon className="h-[18px] w-[18px]" /> : <Sun className="h-[18px] w-[18px]" />}
-            </HoverIconButton>
+            <ModeToggle />
           </div>
 
           {user ? (

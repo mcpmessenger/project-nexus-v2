@@ -10,21 +10,8 @@ import { WordPullUp } from "@/components/ui/word-pull-up"
 import { BentoGrid, BentoCard } from "@/components/ui/bento-grid"
 import { BorderBeam } from "@/components/ui/border-beam"
 import { Marquee } from "@/components/ui/marquee"
-import {
-  ArrowRight,
-  Brain,
-  Eye,
-  Network,
-  Shield,
-  Zap,
-  Activity,
-  CheckCircle2,
-  Github,
-  FileText,
-  ExternalLink,
-  Lock,
-  Rocket,
-} from "lucide-react"
+import { Rocket, Lock, ArrowRight, Brain, Eye, Network, Shield, Zap, Activity, Github, ExternalLink, FileText } from "lucide-react"
+import { ModeToggle } from "@/components/mode-toggle"
 
 export const metadata: Metadata = {
   title: "Give your AI hands. Connect any tool to any model with Nexus",
@@ -65,6 +52,8 @@ export default function LandingPage() {
   const mcpServers = [
     { name: "MCP", icon: "/images/mcpwhtbggd.png", serverId: null },
     { name: "GitHub", icon: "/images/Octicons-mark-github.svg.png", serverId: "github" },
+    { name: "Gmail", icon: "/images/Gmail_icon_(2020).svg.webp", serverId: "gmail" },
+    { name: "Google Calendar", icon: "/images/Google_Calendar_icon_(2020).svg.png", serverId: "calendar" },
     { name: "Google Maps", icon: "/images/Google_Maps_icon_(2020).svg", serverId: "maps" },
     { name: "Exa Search", icon: "/images/exa-color.png", serverId: "exa" },
     { name: "Playwright", icon: "/images/playwright.png", serverId: "playwright" },
@@ -82,6 +71,9 @@ export default function LandingPage() {
       <div className="flex min-h-screen flex-col">
         {/* Hero Section */}
         <section className="relative overflow-hidden border-b border-border bg-gradient-to-br from-background via-background to-primary/5 px-6 py-24 lg:py-32">
+          <div className="absolute top-4 right-4 z-10">
+            <ModeToggle />
+          </div>
           <RetroGrid className="absolute inset-0 opacity-40" />
           <div className="relative mx-auto max-w-screen-xl">
             <div className="grid gap-12 lg:grid-cols-2 lg:gap-16">

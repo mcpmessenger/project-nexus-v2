@@ -1,16 +1,23 @@
 import Image from "next/image";
+import Link from "next/link";
+import { ModeToggle } from "@/components/mode-toggle";
 
 export default function PrivacyPolicy() {
     return (
-        <div className="container mx-auto px-4 py-8 max-w-4xl text-foreground">
+        <div className="container mx-auto px-4 py-8 max-w-4xl text-foreground relative">
+            <div className="absolute top-4 right-4">
+                <ModeToggle />
+            </div>
             <div className="flex justify-center mb-8">
-                <Image
-                    src="/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"
-                    alt="Project Nexus Logo"
-                    width={80}
-                    height={80}
-                    className="rounded-xl"
-                />
+                <Link href="/">
+                    <Image
+                        src="/images/chatgpt-20image-20jun-2023-2c-202025-2c-2003-53-12-20pm.png"
+                        alt="Project Nexus Logo"
+                        width={80}
+                        height={80}
+                        className="rounded-xl hover:opacity-90 transition-opacity"
+                    />
+                </Link>
             </div>
             <h1 className="text-3xl font-bold mb-6">Privacy Policy</h1>
             <p className="mb-4 text-sm text-muted-foreground">Last Updated: January 8, 2026</p>
