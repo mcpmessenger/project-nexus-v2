@@ -82,6 +82,13 @@ const GOOGLE_GROUNDING_ID = "google-maps-grounding"
  * Apply server-specific config transformations (similar to registry.ts)
  */
 function applyServerConfig(serverId: string, config: McpRouteConfigInput, options?: InvokeToolOptions): McpRouteConfigInput {
+  try {
+    if (typeof window === 'undefined') {
+      const fs = require('fs');
+      fs.appendFileSync('server_debug.log', `[ApplyConfig] Called for ${serverId}. Transport: ${config.transport}\n`);
+    }
+  } catch (e) { }
+
   if (serverId === 'maps' || serverId === GOOGLE_GROUNDING_ID) {
     const existingHeader =
       config.headers?.['X-Goog-Api-Key'] ?? config.headers?.['x-goog-api-key']
@@ -256,13 +263,34 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       if (storedSessionId) {
         headers['X-Session-ID'] = storedSessionId
       }
+    }
 
-      // Relay tokens for stateless Cloud Run persistence
-      // Priority: options > localStorage
-      const accessToken = options?.googleOauthAccessToken || localStorage.getItem('google_workspace_access_token')
-      const refreshToken = options?.googleOauthRefreshToken || localStorage.getItem('google_workspace_refresh_token')
-      if (accessToken) headers['X-Google-Access-Token'] = accessToken
-      if (refreshToken) headers['X-Google-Refresh-Token'] = refreshToken
+    // Relay tokens for stateless Cloud Run persistence
+    // Priority: options > localStorage
+    const accessToken = options?.googleOauthAccessToken || (typeof window !== 'undefined' ? localStorage.getItem('google_workspace_access_token') : undefined)
+    const refreshToken = options?.googleOauthRefreshToken || (typeof window !== 'undefined' ? localStorage.getItem('google_workspace_refresh_token') : undefined)
+
+
+    if (typeof window === 'undefined') {
+      try {
+        const logMsg = `[ToolsHelper] Injecting headers. Session=${!!headers['X-Session-ID']}, Access=${!!accessToken}, Refresh=${!!refreshToken}\n`;
+        const fs = require('fs');
+        fs.appendFileSync('server_debug.log', logMsg);
+      } catch (e) { /* ignore */ }
+    }
+
+    console.log(`[Tools Helper] 🔍 DEBUG: Preparing headers for Google Workspace. SessionID: ${headers['X-Session-ID'] || 'MISSING'}`)
+
+    if (accessToken) {
+      headers['X-Google-Access-Token'] = accessToken
+      console.log(`[Tools Helper] ✅ Injected Access Token (length: ${accessToken.length})`)
+    } else {
+      console.warn(`[Tools Helper] ❌ NO ACCESS TOKEN FOUND in options or localStorage`)
+    }
+
+    if (refreshToken) {
+      headers['X-Google-Refresh-Token'] = refreshToken
+      console.log(`[Tools Helper] ✅ Injected Refresh Token (length: ${refreshToken.length})`)
     }
 
     // Ensure we have the production URL if not provided
@@ -423,6 +451,13 @@ async function fetchToolsFromServer(
 
     // Apply server-specific config transformations
     config = applyServerConfig(server.id, config)
+
+    // Skip if URL is missing for HTTP transport (prevents 500 errors)
+    if (config.transport === 'http' && !config.url) {
+      console.warn(`[Tools Helper] Skipping ${server.id}: HTTP transport requires a target URL`);
+      return [];
+    }
+
     if (
       options?.googleMapsApiKey &&
       (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID)
@@ -682,15 +717,31 @@ export async function invokeToolByName(
   args: Record<string, unknown>,
   options?: InvokeToolOptions
 ): Promise<unknown> {
+  // Capture basic debug log
+  try {
+    if (typeof window === 'undefined') {
+      const fs = require('fs');
+      fs.appendFileSync('server_debug.log', `[InvokeTool] Called for ${functionName}\n`);
+    }
+  } catch (e) { }
+
   // Parse server_toolname format (using _ separator, OpenAI compatible)
   // Find the first underscore to split server ID from tool name
   const underscoreIndex = functionName.indexOf('_')
+
   if (underscoreIndex === -1 || underscoreIndex === 0) {
     throw new Error(`Invalid function name format: ${functionName}. Expected format: server_toolname`)
   }
 
   const serverId = functionName.substring(0, underscoreIndex)
   let toolName = functionName.substring(underscoreIndex + 1)
+
+  try {
+    if (typeof window === 'undefined') {
+      const fs = require('fs');
+      fs.appendFileSync('server_debug.log', `[InvokeTool] Parsed serverId: ${serverId}, toolName: ${toolName}\n`);
+    }
+  } catch (e) { }
 
   // STRUCTURAL ENFORCEMENT: Backend Interception
   // If AI calls browser_snapshot or browser_screenshot, transparently redirect to browser_take_screenshot

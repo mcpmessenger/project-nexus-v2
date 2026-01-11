@@ -34,6 +34,12 @@ export async function POST(request: Request) {
     const googleOauthRefreshToken = body.googleOauthRefreshToken?.trim() || null
 
     // Debug logging for Maps API key and Project ID
+    try {
+      const logMsg = `[API] Request at ${new Date().toISOString()}. Tokens: Access=${!!googleOauthAccessToken}, Refresh=${!!googleOauthRefreshToken}, Session=${!!googleOauthSessionId}\n`;
+      const fs = require('fs');
+      fs.appendFileSync('server_debug.log', logMsg);
+    } catch (e) { /* ignore */ }
+
     console.log(`[API Messages] Request body keys: ${Object.keys(body).join(', ')}`)
     console.log(`[API Messages] mapsApiKey in body: ${body.mapsApiKey ? `PRESENT (length: ${body.mapsApiKey.length})` : 'MISSING'}`)
     console.log(`[API Messages] mapsProjectId in body: ${body.mapsProjectId ? `PRESENT (${body.mapsProjectId})` : 'MISSING'}`)

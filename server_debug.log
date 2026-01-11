@@ -1,0 +1,44 @@
+[API] Request at 2026-01-11T03:32:15.632Z. Tokens: Access=true, Refresh=true, Session=true
+[API] Request at 2026-01-11T03:36:13.538Z. Tokens: Access=true, Refresh=true, Session=true
+[ApplyConfig] Called for maps. Transport: http
+[ApplyConfig] Called for github. Transport: http
+[ApplyConfig] Called for playwright. Transport: http
+[ApplyConfig] Called for langchain. Transport: http
+[ApplyConfig] Called for exa. Transport: http
+[ApplyConfig] Called for sequential-thinking. Transport: stdio
+[ApplyConfig] Called for notion. Transport: stdio
+[ApplyConfig] Called for n8n. Transport: stdio
+[ApplyConfig] Called for google-workspace. Transport: http
+[InvokeTool] Called for google-workspace_list_calendars
+[InvokeTool] Parsed serverId: google-workspace, toolName: list_calendars
+[ApplyConfig] Called for google-workspace. Transport: http
+[API] Request at 2026-01-11T03:38:58.046Z. Tokens: Access=true, Refresh=true, Session=true
+[ApplyConfig] Called for maps. Transport: http
+[ApplyConfig] Called for github. Transport: http
+[ApplyConfig] Called for playwright. Transport: http
+[ApplyConfig] Called for langchain. Transport: http
+[ApplyConfig] Called for exa. Transport: http
+[ApplyConfig] Called for sequential-thinking. Transport: stdio
+[ApplyConfig] Called for notion. Transport: stdio
+[ApplyConfig] Called for n8n. Transport: stdio
+[ApplyConfig] Called for google-workspace. Transport: http
+[ToolsHelper] Injecting headers. Session=false, Access=false, Refresh=false
+[InvokeTool] Called for google-workspace_list_calendars
+[InvokeTool] Parsed serverId: google-workspace, toolName: list_calendars
+[ApplyConfig] Called for google-workspace. Transport: http
+[ToolsHelper] Injecting headers. Session=true, Access=true, Refresh=true
+[API] Request at 2026-01-11T03:39:40.364Z. Tokens: Access=true, Refresh=true, Session=true
+[ApplyConfig] Called for maps. Transport: http
+[ApplyConfig] Called for github. Transport: http
+[ApplyConfig] Called for playwright. Transport: http
+[ApplyConfig] Called for langchain. Transport: http
+[ApplyConfig] Called for exa. Transport: http
+[ApplyConfig] Called for sequential-thinking. Transport: stdio
+[ApplyConfig] Called for notion. Transport: stdio
+[ApplyConfig] Called for n8n. Transport: stdio
+[ApplyConfig] Called for google-workspace. Transport: http
+[ToolsHelper] Injecting headers. Session=false, Access=false, Refresh=false
+[InvokeTool] Called for google-workspace_list_calendars
+[InvokeTool] Parsed serverId: google-workspace, toolName: list_calendars
+[ApplyConfig] Called for google-workspace. Transport: http
+[ToolsHelper] Injecting headers. Session=true, Access=true, Refresh=true
