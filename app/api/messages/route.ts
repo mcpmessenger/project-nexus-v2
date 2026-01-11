@@ -30,6 +30,8 @@ export async function POST(request: Request) {
     const googleOauthClientId = body.googleOauthClientId?.trim() || null
     const googleOauthClientSecret = body.googleOauthClientSecret?.trim() || null
     const googleOauthSessionId = body.googleOauthSessionId?.trim() || null
+    const googleOauthAccessToken = body.googleOauthAccessToken?.trim() || null
+    const googleOauthRefreshToken = body.googleOauthRefreshToken?.trim() || null
 
     // Debug logging for Maps API key and Project ID
     console.log(`[API Messages] Request body keys: ${Object.keys(body).join(', ')}`)
@@ -127,6 +129,12 @@ export async function POST(request: Request) {
     }
     if (googleOauthSessionId) {
       invocationOptions.googleOauthSessionId = googleOauthSessionId
+    }
+    if (googleOauthAccessToken) {
+      invocationOptions.googleOauthAccessToken = googleOauthAccessToken
+    }
+    if (googleOauthRefreshToken) {
+      invocationOptions.googleOauthRefreshToken = googleOauthRefreshToken
     }
     const hasOptions = Object.keys(invocationOptions).length > 0
 

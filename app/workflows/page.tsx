@@ -256,6 +256,10 @@ export default function WorkflowsPage() {
           }
         }
 
+        if (event.data.session_id) {
+          localStorage.setItem('google_workspace_session_id', event.data.session_id);
+        }
+
         // Refresh server list and health
         fetchServers();
         if (refreshHealth) refreshHealth();
@@ -730,6 +734,8 @@ export default function WorkflowsPage() {
       let googleOauthClientId: string | null = null
       let googleOauthClientSecret: string | null = null
       let googleOauthSessionId: string | null = null
+      let googleOauthAccessToken: string | null = null
+      let googleOauthRefreshToken: string | null = null
 
       if (typeof window !== "undefined") {
         // Load Maps API key
@@ -808,6 +814,8 @@ export default function WorkflowsPage() {
           console.log(`[Workflows] Using Google OAuth credentials from localStorage`)
         }
         googleOauthSessionId = localStorage.getItem("google_workspace_session_id")
+        googleOauthAccessToken = localStorage.getItem("google_workspace_access_token")
+        googleOauthRefreshToken = localStorage.getItem("google_workspace_refresh_token")
       }
 
       // Call the API with streaming support for tool execution tracking
@@ -819,7 +827,7 @@ export default function WorkflowsPage() {
           history: messages.map(m => ({
             role: m.role,
             content: m.content,
-            imageUrl: m.imageUrl,
+            imageUrl: m.imageUrl?.startsWith('blob:') ? undefined : m.imageUrl,
             toolCalls: m.toolCalls,
             toolCallId: m.toolCallId
           })),
@@ -834,6 +842,8 @@ export default function WorkflowsPage() {
           googleOauthClientId,
           googleOauthClientSecret,
           googleOauthSessionId,
+          googleOauthAccessToken,
+          googleOauthRefreshToken,
         }),
       })
 

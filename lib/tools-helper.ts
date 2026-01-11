@@ -258,8 +258,9 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       }
 
       // Relay tokens for stateless Cloud Run persistence
-      const accessToken = localStorage.getItem('google_workspace_access_token')
-      const refreshToken = localStorage.getItem('google_workspace_refresh_token')
+      // Priority: options > localStorage
+      const accessToken = options?.googleOauthAccessToken || localStorage.getItem('google_workspace_access_token')
+      const refreshToken = options?.googleOauthRefreshToken || localStorage.getItem('google_workspace_refresh_token')
       if (accessToken) headers['X-Google-Access-Token'] = accessToken
       if (refreshToken) headers['X-Google-Refresh-Token'] = refreshToken
     }
@@ -672,6 +673,8 @@ interface InvokeToolOptions {
   googleOauthClientId?: string | null
   googleOauthClientSecret?: string | null
   googleOauthSessionId?: string | null
+  googleOauthAccessToken?: string | null
+  googleOauthRefreshToken?: string | null
 }
 
 export async function invokeToolByName(
