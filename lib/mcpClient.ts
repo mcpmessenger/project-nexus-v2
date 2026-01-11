@@ -23,6 +23,8 @@ export interface McpServerConfig {
   args?: string[]
   env?: Record<string, string>
   tools?: ToolSchema[]
+  oauthClientId?: string
+  oauthClientSecret?: string
 }
 
 export interface McpRouteConfigInput {
@@ -35,6 +37,8 @@ export interface McpRouteConfigInput {
   args?: string[]
   env?: Record<string, string>
   tools?: ToolSchema[]
+  oauthClientId?: string
+  oauthClientSecret?: string
 }
 
 export interface McpRouteRequest {
@@ -42,6 +46,7 @@ export interface McpRouteRequest {
   method?: string
   params?: Record<string, unknown>
   config: McpRouteConfigInput
+  userId?: string
 }
 
 export interface McpHealthResponse {
@@ -199,6 +204,8 @@ export function buildMcpConfig(input: McpRouteConfigInput): McpServerConfig {
     args: input.args,
     env: input.env,
     tools: input.tools,
+    oauthClientId: input.oauthClientId,
+    oauthClientSecret: input.oauthClientSecret,
   }
 }
 
@@ -313,13 +320,23 @@ export class McpClient {
   async listTools(): Promise<ToolSchema[]> {
     const cached = getCachedToolSchema(this.config.id)
     if (cached) {
+      console.log(`[MCP Client] Returning ${cached.length} cached tools for ${this.config.id}`)
       return cached
     }
-    const response = await this.call("tools/list", {})
-    const tools = extractTools(response)
-    const finalTools = tools.length ? tools : this.config.tools ?? []
-    cacheToolSchema(this.config.id, finalTools)
-    return finalTools
+    console.log(`[MCP Client] Fetching tools for ${this.config.id} (${this.config.transport})...`)
+    try {
+      const response = await this.call("tools/list", {})
+      const tools = extractTools(response)
+      console.log(`[MCP Client] Successfully extracted ${tools.length} tools for ${this.config.id}`)
+      const finalTools = tools.length ? tools : this.config.tools ?? []
+      cacheToolSchema(this.config.id, finalTools)
+      return finalTools
+    } catch (error) {
+      console.error(`[MCP Client] ❌ Failed to fetch tools for ${this.config.id}:`, error instanceof Error ? error.message : error)
+      // Only return empty array if we're NOT in a health check context, 
+      // or if we want to allow fallback. For now, let's throw so the UI sees the error.
+      throw error
+    }
   }
 
   async call(method: string, params: Record<string, unknown> = {}) {
@@ -364,18 +381,21 @@ export class McpClient {
       urlLower.includes('/invoke') ||
       urlLower.includes('langchain') ||
       urlLower.includes('exa.ai') ||
+      urlLower.includes('google-workspace') ||
       idLower.includes('langchain') ||
       idLower.includes('exa') ||
+      idLower.includes('google-workspace') ||
       nameLower.includes('langchain') ||
       nameLower.includes('langchain agent') ||
-      nameLower.includes('exa')
+      nameLower.includes('exa') ||
+      nameLower.includes('google workspace')
 
     if (isRestServer) {
-      console.log(`[MCP Client] Using REST transport for server: ${this.config.name} (${this.config.url})`)
+      console.log(`[MCP Client] [DEBUG] Selected REST transport for: ${this.config.id}`)
       return callRestTransport(this.config, payload)
     }
 
-    console.log(`[MCP Client] Using SSE transport for server: ${this.config.name} (${this.config.url})`)
+    console.log(`[MCP Client] [DEBUG] Selected SSE transport for: ${this.config.id}`)
     return callSseTransport(this.config, payload)
   }
 
@@ -620,7 +640,7 @@ async function callSseTransport(config: McpServerConfig, payload: JsonRpcEnvelop
     let jsonData: any
     try {
       jsonData = JSON.parse(bodyText || '{}')
-      console.log(`[MCP Client] Successfully parsed JSON response`)
+      console.log(`[MCP Client] [DEBUG] Parsed JSON response:`, JSON.stringify(jsonData).substring(0, 300))
     } catch (parseError) {
       const preview = bodyText && typeof bodyText === 'string' && bodyText.length > 0 ? bodyText.substring(0, 500) : 'empty response'
       console.error(`[MCP Client] Failed to parse JSON. Status: ${response.status}, Body preview: ${preview}`)
@@ -785,14 +805,20 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
     config.name?.toLowerCase().includes('exa') ||
     config.url.toLowerCase().includes('exa.ai')
 
+  // Check if this is Google Workspace (uses JSON-RPC at base /mcp URL)
+  const isWorkspace = config.id?.toLowerCase().includes('workspace') ||
+    config.name?.toLowerCase().includes('workspace') ||
+    config.url.toLowerCase().includes('google-workspace')
+
   // For REST-based MCP servers, determine the correct endpoint
   let invokeUrl = config.url
-  if (isExa) {
-    // Exa uses the base URL directly (https://mcp.exa.ai/mcp) for JSON-RPC
+  if (isExa || isWorkspace || invokeUrl.endsWith('/mcp')) {
+    // These servers use the base URL (or /mcp) directly for JSON-RPC
     invokeUrl = config.url.replace(/\/$/, '')
   } else if (!invokeUrl.includes('/mcp/invoke') && !invokeUrl.includes('/invoke')) {
     // Other servers: append /mcp/invoke if it's the base URL
     invokeUrl = invokeUrl.replace(/\/$/, '') + '/mcp/invoke'
+    console.log(`[MCP Client] [DEBUG] Appended /mcp/invoke: ${invokeUrl}`)
   }
 
   // LangChain server uses a different format - convert JSON-RPC to LangChain format
@@ -925,10 +951,13 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
     body: JSON.stringify(requestBody),
   })
 
-  console.log(`[MCP Client] Response status: ${response.status} ${response.statusText}`)
+  console.log(`[MCP Client] Response status for ${config.id}: ${response.status} ${response.statusText}`)
+
+  const bodyText = await response.text()
+  console.log(`[MCP Client] Raw response body from ${config.id}:`, bodyText.substring(0, 500))
 
   if (!response.ok) {
-    const bodyText = await response.text()
+    console.log(`[MCP Client] Request body sent to ${config.id}:`, JSON.stringify(requestBody).substring(0, 500))
     console.log(`[MCP Client] Request body sent:`, JSON.stringify(requestBody).substring(0, 500))
     console.log(`[MCP Client] Response status: ${response.status}, body: ${bodyText.substring(0, 500)}`)
 
@@ -998,11 +1027,11 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
 
   // Handle Exa's SSE response format
   if (isExa && (contentType.includes("text/event-stream") || contentType.includes("text/plain"))) {
-    const text = await response.text()
+    // Already read bodyText at line 950
     console.log(`[MCP Client] Exa returned SSE format, parsing...`)
 
     // Parse SSE format: "event: message\ndata: {...}"
-    const lines = text.split('\n')
+    const lines = bodyText.split('\n')
     let dataLine = ''
     for (const line of lines) {
       if (line.startsWith('data: ')) {
@@ -1012,7 +1041,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
     }
 
     if (!dataLine) {
-      throw new Error(`Failed to parse REST response: ${text.substring(0, 200)}`)
+      throw new Error(`Failed to parse REST response: ${bodyText.substring(0, 200)}`)
     }
 
     try {
@@ -1023,12 +1052,18 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       }
       return jsonRpcResponse
     } catch (e) {
-      throw new Error(`Failed to parse REST response: ${text.substring(0, 200)}`)
+      throw new Error(`Failed to parse REST response: ${bodyText.substring(0, 200)}`)
     }
   }
 
+  // Handle application/json response directly
   if (contentType.includes("application/json")) {
-    const parsed = await response.json()
+    let parsed: any
+    try {
+      parsed = JSON.parse(bodyText)
+    } catch (e) {
+      throw new Error(`Failed to parse JSON response from ${config.id}: ${bodyText.substring(0, 200)}`)
+    }
 
     // LangChain server returns a different format - convert to JSON-RPC format
     if (isLangChain && payload.method === "tools/list") {
@@ -1050,13 +1085,6 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       // The response might be in different formats, so handle all cases
       console.log(`[MCP Client] LangChain response format:`, JSON.stringify(parsed).substring(0, 500))
 
-      // The response might be:
-      // - { result: "..." } 
-      // - { content: "..." }
-      // - { output: "..." }
-      // - Just the string directly
-      // - { error: "..." }
-
       if (parsed.error) {
         throw new Error(parsed.error.message || parsed.error || JSON.stringify(parsed.error))
       }
@@ -1076,7 +1104,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
         }
       }
 
-      // Otherwise return as-is
+      // OTHERWISE return as-is
       return {
         jsonrpc: "2.0",
         id: payload.id,
@@ -1091,10 +1119,9 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       return jsonRpcResponse
     }
   } else {
-    // Fallback: try to parse as JSON anyway
-    const text = await response.text()
+    // Fallback: try to parse as JSON anyway (already have bodyText)
     try {
-      const parsed = JSON.parse(text)
+      const parsed = JSON.parse(bodyText)
 
       // Handle LangChain format
       if (isLangChain && payload.method === "tools/list") {
@@ -1118,7 +1145,7 @@ async function callRestTransport(config: McpServerConfig, payload: JsonRpcEnvelo
       }
       return jsonRpcResponse
     } catch (error) {
-      throw new Error(`Failed to parse REST response: ${text.substring(0, 200)}`)
+      throw new Error(`Failed to parse REST response: ${bodyText.substring(0, 200)}`)
     }
   }
 }

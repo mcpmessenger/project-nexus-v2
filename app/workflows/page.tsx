@@ -64,10 +64,13 @@ interface SpeechRecognitionAlternative {
 
 interface Message {
   id: string
-  role: "user" | "assistant"
+  role: "user" | "assistant" | "tool"
   content: string
   imageUrl?: string
   timestamp: Date
+  toolCalls?: any[]
+  toolResults?: any[]
+  toolCallId?: string
 }
 
 interface Server {
@@ -114,7 +117,16 @@ function generateUUID(): string {
 
 export default function WorkflowsPage() {
   const { user } = useAuth()
-  const avatarImageClassName = user?.avatar_url ? undefined : "dark:invert"
+  const [googleUser, setGoogleUser] = React.useState<{ email?: string, name?: string, picture?: string } | null>(null)
+
+  // Use Google user if available, otherwise fall back to regular user
+  const displayUser = googleUser ? {
+    name: googleUser.name || googleUser.email || 'Google User',
+    email: googleUser.email || '',
+    avatar_url: googleUser.picture || ''
+  } : user
+
+  const avatarImageClassName = displayUser?.avatar_url ? undefined : "dark:invert"
   const [messages, setMessages] = React.useState<Message[]>([])
   const [input, setInput] = React.useState("")
   const [isLoading, setIsLoading] = React.useState(false)
@@ -150,6 +162,43 @@ export default function WorkflowsPage() {
       setHasInitialLoad(true)
     }
   }, [serverStatuses.length, hasInitialLoad])
+
+  // Listen for OAuth success messages to store Google user profile
+  React.useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'oauth_success' && event.data?.service === 'google-workspace') {
+        const { user: googleUser } = event.data
+        if (googleUser) {
+          localStorage.setItem('google_workspace_user', JSON.stringify(googleUser))
+          console.log('📧 Stored Google user profile:', googleUser.email)
+          // Trigger a re-render by updating a state (optional, but helps refresh the UI)
+          window.dispatchEvent(new Event('storage'))
+        }
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
+
+  // Load Google user from localStorage on mount
+  React.useEffect(() => {
+    const loadGoogleUser = () => {
+      const storedUser = localStorage.getItem('google_workspace_user')
+      if (storedUser) {
+        try {
+          setGoogleUser(JSON.parse(storedUser))
+        } catch (e) {
+          console.error('Failed to parse Google user:', e)
+        }
+      }
+    }
+
+    loadGoogleUser()
+    window.addEventListener('storage', loadGoogleUser)
+    return () => window.removeEventListener('storage', loadGoogleUser)
+  }, [])
+
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
@@ -239,6 +288,33 @@ export default function WorkflowsPage() {
     }
   }, [fetchServers])
 
+  // Listen for OAuth success from popups (for chat authentication)
+  React.useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'oauth_success') {
+        console.log('[Workflows] OAuth success received from popup:', event.data);
+
+        // Store relayed tokens for stateless retry/persistence
+        if (event.data.tokens) {
+          localStorage.setItem('google_workspace_access_token', event.data.tokens.access_token);
+          if (event.data.tokens.refresh_token) {
+            localStorage.setItem('google_workspace_refresh_token', event.data.tokens.refresh_token);
+          }
+        }
+
+        if (event.data.session_id) {
+          localStorage.setItem('google_workspace_session_id', event.data.session_id);
+        }
+
+        // Refresh server list and health
+        fetchServers();
+        if (refreshHealth) refreshHealth();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [fetchServers, refreshHealth]);
+
   const serverSignature = React.useMemo(() => {
     if (servers.length === 0) return ""
     return servers
@@ -307,18 +383,7 @@ export default function WorkflowsPage() {
                 NOTION_API_KEY: apiKeys.notion.trim(),
               }
             }
-          } else if (serverId === "google-workspace" || serverId.includes("workspace")) {
-            config.transport = "stdio"
-            config.command = "python"
-            config.args = ["-m", "main", "--transport", "stdio", "--tools", "gmail", "calendar", "search"]
-            if (apiKeys.googleOAuthClientId && apiKeys.googleOAuthClientSecret) {
-              config.env = {
-                GOOGLE_OAUTH_CLIENT_ID: apiKeys.googleOAuthClientId.trim(),
-                GOOGLE_OAUTH_CLIENT_SECRET: apiKeys.googleOAuthClientSecret.trim(),
-                WORKSPACE_MCP_PORT: "54321", // Avoid conflict with Next.js on port 3000
-                PORT: "54321", // Override PORT inherited from Next.js
-              }
-            }
+
           } else if (serverId === "maps" || serverId.includes("maps") || serverId.includes("google-maps")) {
             config.transport = "http"
             config.url = "https://mapstools.googleapis.com/mcp"
@@ -712,6 +777,11 @@ export default function WorkflowsPage() {
       let notionApiKey: string | null = null
       let githubToken: string | null = null
       let exaApiKey: string | null = null
+      let googleOauthClientId: string | null = null
+      let googleOauthClientSecret: string | null = null
+      let googleOauthSessionId: string | null = null
+      let googleOauthAccessToken: string | null = null
+      let googleOauthRefreshToken: string | null = null
 
       if (typeof window !== "undefined") {
         // Load Maps API key
@@ -782,6 +852,16 @@ export default function WorkflowsPage() {
           exaApiKey = storedExaKey.trim()
           console.log(`[Workflows] Using Exa API key from localStorage (length: ${exaApiKey.length})`)
         }
+
+        // Load Google OAuth credentials
+        googleOauthClientId = localStorage.getItem("google_oauth_client_id")
+        googleOauthClientSecret = localStorage.getItem("google_oauth_client_secret")
+        if (googleOauthClientId) {
+          console.log(`[Workflows] Using Google OAuth credentials from localStorage`)
+        }
+        googleOauthSessionId = localStorage.getItem("google_workspace_session_id")
+        googleOauthAccessToken = localStorage.getItem("google_workspace_access_token")
+        googleOauthRefreshToken = localStorage.getItem("google_workspace_refresh_token")
       }
 
       // Call the API with streaming support for tool execution tracking
@@ -790,6 +870,13 @@ export default function WorkflowsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: userInput,
+          history: messages.map(m => ({
+            role: m.role,
+            content: m.content,
+            imageUrl: m.imageUrl?.startsWith('blob:') ? undefined : m.imageUrl,
+            toolCalls: m.toolCalls,
+            toolCallId: m.toolCallId
+          })),
           imageUrl: imageBase64,
           provider: chatProvider,
           apiKey: userApiKey,
@@ -798,6 +885,11 @@ export default function WorkflowsPage() {
           notionApiKey,
           githubToken,
           exaApiKey,
+          googleOauthClientId,
+          googleOauthClientSecret,
+          googleOauthSessionId,
+          googleOauthAccessToken,
+          googleOauthRefreshToken,
         }),
       })
 
@@ -854,15 +946,45 @@ export default function WorkflowsPage() {
       // Refresh health after completion
       refreshHealth()
 
-      // Add assistant message
+      // Add assistant message with tool metadata
       const assistantMessage: Message = {
         id: generateUUID(),
         role: "assistant",
         content: data.content || "No response generated",
-        imageUrl: data.imageUrl || undefined, // Include image URL if present (e.g., from screenshots)
+        imageUrl: data.imageUrl || undefined,
         timestamp: new Date(),
+        toolCalls: data.toolCalls,
       }
-      setMessages((prev) => [...prev, assistantMessage])
+
+      // If there are tool results, we need to add them to history as well
+      // Note: We don't necessarily need to render them in the UI, but they must be in the state for history
+      const toolResultMessage: Message | null = data.toolResults ? {
+        id: generateUUID(),
+        role: "tool",
+        content: data.toolResults.map((tr: any) => tr.content).join("\n"),
+        timestamp: new Date(),
+        toolResults: data.toolResults,
+        // For simplicity, if multiple tools were called, we'd ideally have multiple tool messages
+        // but adding them to history correctly later is what matters most.
+      } : null
+
+      setMessages((prev) => {
+        let next = [...prev, assistantMessage]
+
+        // If the backend sent back specific tool results, add them as hidden 'tool' messages
+        if (data.toolResults && Array.isArray(data.toolResults)) {
+          const toolMessages = data.toolResults.map((tr: any) => ({
+            id: generateUUID(),
+            role: "tool" as const,
+            content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content),
+            timestamp: new Date(),
+            toolCallId: tr.tool_call_id
+          }))
+          next = [...next, ...toolMessages]
+        }
+
+        return next
+      })
     } catch (error: any) {
       console.error("Error sending message:", error)
       // Extract the actual error message, handling both Error objects and strings
@@ -1245,7 +1367,8 @@ export default function WorkflowsPage() {
                           }
 
                           // If not a markdown link, split by standalone URLs
-                          return part.split(/(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9]{1,6}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*))/g).map((subPart, subIndex) => {
+                          // Regex breakdown: http(s):// optional www. optional chars for domain/TLD, then an optional path/query part that doesn't end in punctuation
+                          return part.split(/(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9]{1,6}\b(?:[-a-zA-Z0-9@:%_\+.~#?&//=]*[a-zA-Z0-9@:%_\+~#?&//=])?)/g).map((subPart, subIndex) => {
                             if (subPart.match(/^https?:\/\//)) {
                               const finalUrl = processUrl(subPart)
                               return (
@@ -1272,12 +1395,12 @@ export default function WorkflowsPage() {
               {message.role === "user" && (
                 <Avatar className="h-8 w-8 shrink-0">
                   <AvatarImage
-                    src={user?.avatar_url || "/placeholder-user.svg"}
-                    alt={user?.name || "Guest"}
+                    src={displayUser?.avatar_url || "/placeholder-user.svg"}
+                    alt={displayUser?.name || "Guest"}
                     className={avatarImageClassName}
                   />
                   <AvatarFallback className="text-xs text-foreground">
-                    {user ? user.name.charAt(0).toUpperCase() : "G"}
+                    {displayUser ? displayUser.name.charAt(0).toUpperCase() : "G"}
                   </AvatarFallback>
                 </Avatar>
               )}

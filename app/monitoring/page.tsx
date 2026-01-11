@@ -77,6 +77,7 @@ function RegistryPageContent() {
   const [editingServer, setEditingServer] = React.useState<McpServer | null>(null)
 
   React.useEffect(() => {
+    console.log("RegistryPageContent V5-FINAL-UNLOCK Mounted");
     if (searchParams.get("addServer") === "true") {
       setAddServerOpen(true)
       setEditingServer(null)
@@ -172,6 +173,29 @@ function RegistryPageContent() {
   React.useEffect(() => {
     fetchServers()
   }, [fetchServers, user])
+
+  // Listen for OAuth success from popups
+  React.useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'oauth_success') {
+        console.log('[Monitoring] OAuth success received from popup:', event.data);
+
+        // Store relayed tokens for stateless retry/persistence
+        if (event.data.tokens) {
+          localStorage.setItem('google_workspace_access_token', event.data.tokens.access_token);
+          if (event.data.tokens.refresh_token) {
+            localStorage.setItem('google_workspace_refresh_token', event.data.tokens.refresh_token);
+          }
+        }
+
+        fetchServers();
+        // Force a re-authentication check if needed
+        window.dispatchEvent(new Event("userServersUpdated"));
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [fetchServers]);
 
   const toggleServer = async (serverId: string, type: "system" | "user", enabled: boolean) => {
     // TODO: Implement API call to toggle server
@@ -687,18 +711,7 @@ const KNOWN_SERVERS: Record<string, { url: string; requiresApiKey?: boolean; api
     requiresApiKey: true,
     apiKeyLink: "https://www.notion.so/my-integrations"
   },
-  "google workspace": {
-    url: "stdio", // Google Workspace uses stdio with uvx command
-    transport: "stdio",
-    requiresApiKey: true,
-    apiKeyLink: "https://console.cloud.google.com/apis/credentials"
-  },
-  "google-workspace": {
-    url: "stdio",
-    transport: "stdio",
-    requiresApiKey: true,
-    apiKeyLink: "https://console.cloud.google.com/apis/credentials"
-  },
+
   "n8n": {
     url: "stdio", // n8n uses stdio with npx command
     transport: "stdio",
@@ -722,6 +735,21 @@ const KNOWN_SERVERS: Record<string, { url: string; requiresApiKey?: boolean; api
     transport: "stdio",
     requiresApiKey: false,
     apiKeyLink: undefined
+  },
+  "google-workspace": {
+    url: "https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp",
+    transport: "http",
+    requiresApiKey: false,
+  },
+  "google workspace": {
+    url: "https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp",
+    transport: "http",
+    requiresApiKey: false,
+  },
+  "workspace": {
+    url: "https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp",
+    transport: "http",
+    requiresApiKey: false,
   },
 }
 
@@ -790,6 +818,8 @@ function AddServerDialog({
   const [testResult, setTestResult] = React.useState<{ success: boolean; message: string } | null>(null)
   const [testingApiKey, setTestingApiKey] = React.useState(false)
   const [apiKeyTestResult, setApiKeyTestResult] = React.useState<{ success: boolean; message: string } | null>(null)
+  const [serverAuthConfig, setServerAuthConfig] = React.useState<{ configured: boolean; has_client_id: boolean; has_client_secret: boolean } | null>(null)
+  const [showManualAuthConfig, setShowManualAuthConfig] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   // Auto-populate URL and transport based on server name
@@ -825,17 +855,43 @@ function AddServerDialog({
     }
   }, [name, editingServer, apiKey])
 
+  // Fetch OAuth config when URL changes for Workspace servers
+  React.useEffect(() => {
+    const checkAuthConfig = async () => {
+      if (url && (url.toLowerCase().includes("workspace") || name.toLowerCase().includes("workspace"))) {
+        try {
+          const baseUrl = url.replace(/\/mcp\/?$/, "")
+          const response = await fetch(`${baseUrl}/oauth/config`)
+          if (response.ok) {
+            const data = await response.json()
+            setServerAuthConfig(data)
+          } else {
+            setServerAuthConfig(null)
+          }
+        } catch (error) {
+          console.error("Error fetching OAuth config:", error)
+          setServerAuthConfig(null)
+        }
+      } else {
+        setServerAuthConfig(null)
+      }
+    }
+
+    checkAuthConfig()
+  }, [url, name])
+
   React.useEffect(() => {
     if (editingServer) {
       setName(editingServer.name)
       // Prepopulate URL for system servers
+      // Prepopulate URL for system servers
       const serverId = editingServer.id.toLowerCase()
       const serverName = editingServer.name.toLowerCase()
       const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-      const defaultUrl = knownServer?.url || ""
+      const defaultUrl = editingServer.url || editingServer.config?.url || knownServer?.url || ""
 
       // For stdio servers, show "stdio" as the URL (read-only)
-      if (knownServer?.transport === "stdio") {
+      if (editingServer.transport === "stdio" || (knownServer && knownServer.transport === "stdio")) {
         setUrl("stdio")
       } else {
         setUrl(defaultUrl)
@@ -851,18 +907,17 @@ function AddServerDialog({
         savedApiKey = localStorage.getItem("google_maps_api_key") || editingServer.apiKey || ""
       } else if (serverId === "notion" || serverId.includes("notion")) {
         savedApiKey = localStorage.getItem("notion_api_key") || editingServer.apiKey || ""
-      } else if (serverId === "google-workspace" || serverId.includes("google-workspace") || serverId.includes("workspace")) {
-        // Google Workspace uses OAuth - load from server config, localStorage, or environment
-        const config = (editingServer as any).config || {}
-        const savedClientId = config.oauthClientId || localStorage.getItem("google_oauth_client_id") || ""
-        const savedClientSecret = config.oauthClientSecret || localStorage.getItem("google_oauth_client_secret") || ""
-        setOauthClientId(savedClientId)
-        setOauthClientSecret(savedClientSecret)
-        savedApiKey = editingServer.apiKey || ""
+
       } else {
         savedApiKey = editingServer.apiKey || ""
       }
       setApiKey(savedApiKey)
+
+      // Load OAuth credentials from config (check both config object and localStorage)
+      const clientId = editingServer.config?.oauthClientId || localStorage.getItem("google_oauth_client_id") || ""
+      const clientSecret = editingServer.config?.oauthClientSecret || localStorage.getItem("google_oauth_client_secret") || ""
+      setOauthClientId(clientId)
+      setOauthClientSecret(clientSecret)
 
       // naturalLanguageInChat is always true, no need to set it
       if (editingServer.logoUrl) {
@@ -1041,13 +1096,6 @@ function AddServerDialog({
         serverId === "github" ||
         serverId === "playwright" ||
         serverId === "notion" ||
-        serverId === "google-workspace" ||
-        serverId === "n8n" ||
-        serverId === "sequential-thinking" ||
-        normalizedName === "github" ||
-        normalizedName === "playwright" ||
-        normalizedName === "notion" ||
-        normalizedName.includes("workspace") ||
         normalizedName === "n8n" ||
         normalizedName.includes("sequential")
 
@@ -1106,29 +1154,7 @@ function AddServerDialog({
               NOTION_API_KEY: notionKey,
             },
           }
-        } else if (serverId === "google-workspace" || normalizedName.includes("workspace")) {
-          // Google Workspace MCP server (OAuth2 - use user-provided or environment variables)
-          const clientId = oauthClientId.trim() || process.env.GOOGLE_OAUTH_CLIENT_ID
-          const clientSecret = oauthClientSecret.trim() || process.env.GOOGLE_OAUTH_CLIENT_SECRET
-          if (!clientId || !clientSecret) {
-            setTestResult({
-              success: false,
-              message: "Google Workspace requires OAuth2 credentials. Enter your OAuth Client ID and Client Secret above, or set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET environment variables. Get credentials from Google Cloud Console."
-            })
-            setTesting(false)
-            return
-          }
-          config = {
-            id: "google-workspace",
-            name: name || "Google Workspace",
-            transport: "stdio",
-            command: "python",
-            args: ["-m", "main", "--transport", "stdio"],
-            env: {
-              GOOGLE_OAUTH_CLIENT_ID: clientId,
-              GOOGLE_OAUTH_CLIENT_SECRET: clientSecret,
-            },
-          }
+
         } else if (serverId === "n8n" || normalizedName === "n8n") {
           // n8n MCP server (optional API key)
           config = {
@@ -1191,6 +1217,8 @@ function AddServerDialog({
           name: name || normalizedName,
           transport: "http",
           url: url,
+          oauthClientId,
+          oauthClientSecret,
         }
 
         // Add API key to headers if provided (for HTTP transport)
@@ -1202,6 +1230,12 @@ function AddServerDialog({
           } else {
             config.headers = { "Authorization": `Bearer ${apiKey}` }
           }
+        }
+
+        // Add OAuth Session ID if available
+        const sessionId = localStorage.getItem('google_workspace_session_id')
+        if (sessionId && normalizedName.includes("workspace")) {
+          config.headers = { ...(config.headers || {}), "X-Session-ID": sessionId }
         }
       }
 
@@ -1282,6 +1316,7 @@ function AddServerDialog({
             ...(s.config || {}),
             oauthClientId: oauthClientId.trim(),
             oauthClientSecret: oauthClientSecret.trim(),
+            googleOauthSessionId: localStorage.getItem('google_workspace_session_id') || undefined,
           }
         }
         return updated
@@ -1290,6 +1325,9 @@ function AddServerDialog({
 
       // Dispatch custom event to notify other components
       window.dispatchEvent(new Event("userServersUpdated"))
+
+      // Refresh server list
+      onAdd()
     } else {
       // Determine transport type
       const normalizedName = name.toLowerCase().trim()
@@ -1317,6 +1355,7 @@ function AddServerDialog({
         if ((normalizedName === "google-workspace" || normalizedName.includes("workspace")) && oauthClientId && oauthClientSecret) {
           requestBody.oauthClientId = oauthClientId.trim()
           requestBody.oauthClientSecret = oauthClientSecret.trim()
+          requestBody.googleOauthSessionId = localStorage.getItem('google_workspace_session_id') || undefined
         }
 
         const response = await fetch("/api/servers", {
@@ -1387,8 +1426,10 @@ function AddServerDialog({
       )}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="sr-only">
-            {editingServer ? "Update Server" : "Add Server"}
+          <DialogTitle className="text-xl font-bold text-slate-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {editingServer ? "Update Server" : "Add Server"}
+            </div>
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -1400,65 +1441,45 @@ function AddServerDialog({
               onChange={(e) => setName(e.target.value)}
               placeholder="My Custom Server"
               required
-              disabled={editingServer?.type === "system"}
-              className={editingServer?.type === "system" ? "bg-muted cursor-not-allowed" : ""}
+              disabled={false}
+              className="bg-white text-black"
             />
-            {editingServer?.type === "system" && (
-              <p className="text-xs text-muted-foreground">
-                System server name cannot be changed
-              </p>
-            )}
+            {editingServer?.type === "system" && <p className="text-xs text-blue-500 flex items-center gap-1 mt-1">
+              System servers usually have locked names, but you can override the configuration below.
+            </p>
+            }
           </div>
           <div className="space-y-2">
             <Label htmlFor="url">Server URL</Label>
             <div className="flex gap-2">
               <Input
-                id="url"
-                type="text"
+                id="serverUrl"
+                placeholder="e.g. http://localhost:8080/mcp"
                 value={url}
                 onChange={(e) => {
                   setUrl(e.target.value)
                   setTestResult(null)
                 }}
-                placeholder={(() => {
-                  const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
-                  const serverName = name.toLowerCase().trim()
-                  const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-
-                  if (knownServer?.transport === "stdio") {
-                    return "stdio (uses stdio transport)"
-                  }
-                  if (knownServer?.url && knownServer.url !== "stdio") {
-                    return knownServer.url
-                  }
-                  return "https://mcp.exa.ai/mcp"
-                })()}
                 required={(() => {
                   const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
                   const serverName = name.toLowerCase().trim()
                   const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
                   return knownServer?.transport !== "stdio"
                 })()}
-                disabled={editingServer?.type === "system" || (() => {
-                  const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
-                  const serverName = name.toLowerCase().trim()
-                  const knownServer = KNOWN_SERVERS[serverId] || KNOWN_SERVERS[serverName]
-                  return knownServer?.transport === "stdio"
-                })()}
-                className={`flex-1 ${editingServer?.type === "system" ? "bg-muted cursor-not-allowed" : ""}`}
+                className="bg-slate-800/50 border-slate-700 text-slate-100 h-10"
               />
               <Button
                 type="button"
                 variant="outline"
                 onClick={handleTestConnection}
                 disabled={testing || !url}
-                className="shrink-0"
+                className="h-10 px-4 bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white"
               >
                 {testing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Testing...
-                  </>
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Testing...</span>
+                  </div>
                 ) : (
                   "Test"
                 )}
@@ -1529,8 +1550,9 @@ function AddServerDialog({
                 disabled={(() => {
                   const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
                   const serverName = name.toLowerCase().trim()
-                  return serverId.includes("google-workspace") || serverName.includes("workspace")
-                })()}
+                  return false
+                })()
+                }
                 placeholder={(() => {
                   const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
                   const serverName = name.toLowerCase().trim()
@@ -1542,9 +1564,7 @@ function AddServerDialog({
                   if (serverId === "github" || serverName.includes("github")) {
                     return "Enter your GitHub Personal Access Token"
                   }
-                  if (serverId.includes("google-workspace") || serverName.includes("workspace")) {
-                    return "OAuth credentials configured via environment variables"
-                  }
+
                   return "Enter your API key"
                 })()}
                 className="flex-1"
@@ -1579,74 +1599,20 @@ function AddServerDialog({
                 return null
               })()}
             </div>
-            {(() => {
-              const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
-              const serverName = name.toLowerCase().trim()
-              const isGoogleWorkspace = serverId.includes("google-workspace") || serverName.includes("workspace")
-
-              // Show OAuth fields for Google Workspace
-              if (isGoogleWorkspace) {
-                return (
-                  <>
-                    <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50">
-                      <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-                      <p className="text-sm text-red-800 dark:text-red-200">
-                        API key testing is not available for Google Workspace. You can test the connection using the "Test" button next to the URL field.
-                      </p>
-                    </div>
-
-                    {/* OAuth Client ID */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label htmlFor="oauthClientId">OAuth Client ID (Required)</Label>
-                        <a
-                          href="https://console.cloud.google.com/apis/credentials"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-primary hover:underline flex items-center gap-1"
-                        >
-                          Get from Google Cloud Console
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </div>
-                      <Input
-                        id="oauthClientId"
-                        type="text"
-                        value={oauthClientId}
-                        onChange={(e) => setOauthClientId(e.target.value)}
-                        placeholder="Enter your OAuth Client ID"
-                        className="font-mono text-sm"
-                      />
-                    </div>
-
-                    {/* OAuth Client Secret */}
-                    <div className="space-y-2">
-                      <Label htmlFor="oauthClientSecret">OAuth Client Secret (Required)</Label>
-                      <Input
-                        id="oauthClientSecret"
-                        type="password"
-                        value={oauthClientSecret}
-                        onChange={(e) => setOauthClientSecret(e.target.value)}
-                        placeholder="Enter your OAuth Client Secret"
-                        className="font-mono text-sm"
-                      />
-                    </div>
-                  </>
-                )
-              }
-              return null
-            })()}
-            {apiKeyTestResult && (
-              <div className={`flex items-center gap-2 text-sm ${apiKeyTestResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                }`}>
-                {apiKeyTestResult.success ? (
-                  <CheckCircle2 className="h-4 w-4" />
-                ) : (
-                  <XCircle className="h-4 w-4" />
-                )}
-                <span>{apiKeyTestResult.message}</span>
-              </div>
-            )}
+            {null}
+            {
+              apiKeyTestResult && (
+                <div className={`flex items-center gap-2 text-sm ${apiKeyTestResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                  }`}>
+                  {apiKeyTestResult.success ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : (
+                    <XCircle className="h-4 w-4" />
+                  )}
+                  <span>{apiKeyTestResult.message}</span>
+                </div>
+              )
+            }
             <p className="text-xs text-muted-foreground">
               {(() => {
                 const serverId = editingServer?.id?.toLowerCase() || name.toLowerCase().trim()
@@ -1700,6 +1666,110 @@ function AddServerDialog({
               })()}
             </p>
           </div>
+          {(editingServer?.id === "google-workspace" || name.toLowerCase().includes("workspace")) && (
+            <div className="p-4 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-semibold text-sm">
+                  <Activity className="h-4 w-4" />
+                  Google OAuth Configuration
+                </div>
+                {serverAuthConfig?.configured && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-[10px] h-6 text-indigo-500 hover:text-indigo-600 hover:bg-indigo-100/50"
+                    onClick={() => setShowManualAuthConfig(!showManualAuthConfig)}
+                  >
+                    {showManualAuthConfig ? "Hide Manual Config" : "Show Manual Config"}
+                  </Button>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex flex-col gap-2">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {serverAuthConfig?.configured
+                      ? "This server is configured with global credentials. You can sign in directly:"
+                      : "Sign in with your Google account to authorize tools:"}
+                  </p>
+                  <Button
+                    type="button"
+                    className="w-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 flex items-center justify-center gap-2 py-5 font-medium shadow-sm active:scale-[0.98] transition-all"
+                    onClick={() => {
+                      if (!serverAuthConfig?.configured && (!oauthClientId || !oauthClientSecret)) {
+                        setShowManualAuthConfig(true);
+                        alert("Please provide a Google OAuth Client ID and Secret to continue. \n\nYou can find these in your Google Cloud Console, or configure them as environment variables on your server for a one-click experience.");
+                        return;
+                      }
+
+                      // Handle session persistence
+                      let sessionId = localStorage.getItem('google_workspace_session_id');
+                      if (!sessionId) {
+                        sessionId = 'nexus_' + Math.random().toString(36).substring(2, 15);
+                        localStorage.setItem('google_workspace_session_id', sessionId);
+                      }
+
+                      const baseUrl = url.replace(/\/mcp\/?$/, "");
+                      let authUrl = `${baseUrl}/oauth/authorize?session_id=${sessionId}`;
+
+                      // If not configured on server, pass individual credentials as query params
+                      if (!serverAuthConfig?.configured && oauthClientId && oauthClientSecret) {
+                        const params = new URLSearchParams({
+                          client_id: oauthClientId.trim(),
+                          client_secret: oauthClientSecret.trim()
+                        });
+                        authUrl += `&${params.toString()}`;
+                      }
+                      window.open(authUrl, '_blank', 'width=600,height=700');
+                    }}
+                  >
+                    <img src="https://www.gstatic.com/images/branding/product/1x/gsa_512dp.png" className="w-5 h-5" alt="Google" />
+                    Sign in with Google
+                  </Button>
+                  <p className="text-[10px] text-center text-slate-400 italic">
+                    After signing in, return here to complete the setup.
+                  </p>
+                </div>
+              </div>
+
+              {(!serverAuthConfig?.configured || showManualAuthConfig) && (
+                <div className="space-y-4 pt-2 border-t border-indigo-100 dark:border-indigo-900/50">
+                  <div className="space-y-2">
+                    <Label htmlFor="clientId" className="flex items-center justify-between">
+                      <span>Client ID {serverAuthConfig?.configured ? "(Override)" : "(Optional)"}</span>
+                      {serverAuthConfig?.configured && <span className="text-[10px] text-indigo-400 font-normal italic">Using server-side default</span>}
+                    </Label>
+                    <Input
+                      id="clientId"
+                      value={oauthClientId}
+                      onChange={(e) => setOauthClientId(e.target.value)}
+                      placeholder="Paste Client ID if not already configured on server"
+                      className="bg-white dark:bg-slate-900 border-indigo-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="clientSecret" className="flex items-center justify-between">
+                      <span>Client Secret {serverAuthConfig?.configured ? "(Override)" : "(Optional)"}</span>
+                    </Label>
+                    <Input
+                      id="clientSecret"
+                      type="password"
+                      value={oauthClientSecret}
+                      onChange={(e) => setOauthClientSecret(e.target.value)}
+                      placeholder="Paste Client Secret if not already configured on server"
+                      className="bg-white dark:bg-slate-900 border-indigo-200"
+                    />
+                  </div>
+                </div>
+              )}
+              {!serverAuthConfig?.configured && (
+                <p className="text-[11px] text-indigo-500 italic mt-2">
+                  Note: If your server administrator has already configured global OAuth credentials, you can leave these fields blank.
+                </p>
+              )}
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="logo">Logo (Optional)</Label>
             <div className="flex items-center gap-4">
@@ -1774,9 +1844,9 @@ function AddServerDialog({
               <Button type="submit">{editingServer ? "Update Server" : "Add Server"}</Button>
             </div>
           </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </form >
+      </DialogContent >
+    </Dialog >
   )
 }
 
