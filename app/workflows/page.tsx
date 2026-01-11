@@ -117,7 +117,16 @@ function generateUUID(): string {
 
 export default function WorkflowsPage() {
   const { user } = useAuth()
-  const avatarImageClassName = user?.avatar_url ? undefined : "dark:invert"
+  const [googleUser, setGoogleUser] = React.useState<{ email?: string, name?: string, picture?: string } | null>(null)
+
+  // Use Google user if available, otherwise fall back to regular user
+  const displayUser = googleUser ? {
+    name: googleUser.name || googleUser.email || 'Google User',
+    email: googleUser.email || '',
+    avatar_url: googleUser.picture || ''
+  } : user
+
+  const avatarImageClassName = displayUser?.avatar_url ? undefined : "dark:invert"
   const [messages, setMessages] = React.useState<Message[]>([])
   const [input, setInput] = React.useState("")
   const [isLoading, setIsLoading] = React.useState(false)
@@ -153,6 +162,43 @@ export default function WorkflowsPage() {
       setHasInitialLoad(true)
     }
   }, [serverStatuses.length, hasInitialLoad])
+
+  // Listen for OAuth success messages to store Google user profile
+  React.useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'oauth_success' && event.data?.service === 'google-workspace') {
+        const { user: googleUser } = event.data
+        if (googleUser) {
+          localStorage.setItem('google_workspace_user', JSON.stringify(googleUser))
+          console.log('📧 Stored Google user profile:', googleUser.email)
+          // Trigger a re-render by updating a state (optional, but helps refresh the UI)
+          window.dispatchEvent(new Event('storage'))
+        }
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
+
+  // Load Google user from localStorage on mount
+  React.useEffect(() => {
+    const loadGoogleUser = () => {
+      const storedUser = localStorage.getItem('google_workspace_user')
+      if (storedUser) {
+        try {
+          setGoogleUser(JSON.parse(storedUser))
+        } catch (e) {
+          console.error('Failed to parse Google user:', e)
+        }
+      }
+    }
+
+    loadGoogleUser()
+    window.addEventListener('storage', loadGoogleUser)
+    return () => window.removeEventListener('storage', loadGoogleUser)
+  }, [])
+
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const messagesEndRef = React.useRef<HTMLDivElement>(null)
@@ -1349,12 +1395,12 @@ export default function WorkflowsPage() {
               {message.role === "user" && (
                 <Avatar className="h-8 w-8 shrink-0">
                   <AvatarImage
-                    src={user?.avatar_url || "/placeholder-user.svg"}
-                    alt={user?.name || "Guest"}
+                    src={displayUser?.avatar_url || "/placeholder-user.svg"}
+                    alt={displayUser?.name || "Guest"}
                     className={avatarImageClassName}
                   />
                   <AvatarFallback className="text-xs text-foreground">
-                    {user ? user.name.charAt(0).toUpperCase() : "G"}
+                    {displayUser ? displayUser.name.charAt(0).toUpperCase() : "G"}
                   </AvatarFallback>
                 </Avatar>
               )}

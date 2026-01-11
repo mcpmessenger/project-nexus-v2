@@ -22,11 +22,40 @@ import { HoverIconButton } from "@/components/ui/hover-icon-button"
 export function Navbar() {
   const { user, signOut } = useAuth()
   const [settingsOpen, setSettingsOpen] = React.useState(false)
+  const [googleUser, setGoogleUser] = React.useState<{ email?: string, name?: string, picture?: string } | null>(null)
   const pathname = usePathname()
 
   const isChatPage = pathname === "/workflows"
   const isRegistryPage = pathname === "/monitoring"
-  const avatarImageClassName = user?.avatar_url ? undefined : "dark:invert"
+
+  // Check for Google Workspace user in localStorage
+  React.useEffect(() => {
+    const loadGoogleUser = () => {
+      const storedUser = localStorage.getItem('google_workspace_user')
+      if (storedUser) {
+        try {
+          setGoogleUser(JSON.parse(storedUser))
+        } catch (e) {
+          console.error('Failed to parse Google user:', e)
+        }
+      }
+    }
+
+    loadGoogleUser()
+
+    // Listen for storage events to refresh when user logs in
+    window.addEventListener('storage', loadGoogleUser)
+    return () => window.removeEventListener('storage', loadGoogleUser)
+  }, [])
+
+  // Use Google user if available, otherwise fall back to regular user
+  const displayUser = googleUser ? {
+    name: googleUser.name || googleUser.email || 'Google User',
+    email: googleUser.email || '',
+    avatar_url: googleUser.picture || ''
+  } : user
+
+  const avatarImageClassName = displayUser?.avatar_url ? undefined : "dark:invert"
 
   return (
     <nav className="border-b border-border/40 bg-card/50 backdrop-blur-sm">
@@ -71,32 +100,37 @@ export function Navbar() {
             <ModeToggle />
           </div>
 
-          {user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <HoverIconButton className="h-9 w-9">
-                  <Avatar className="h-7 w-7">
-                    <AvatarImage
-                      src={user.avatar_url || "/placeholder-user.svg"}
-                      alt={user.name}
-                      className={avatarImageClassName}
-                    />
-                    <AvatarFallback className="text-xs text-foreground">{user.name.charAt(0).toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                </HoverIconButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium leading-none">{user.name}</p>
-                    <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </DropdownMenuItem>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <HoverIconButton className="h-9 w-9">
+                <Avatar className="h-7 w-7">
+                  <AvatarImage
+                    src={displayUser?.avatar_url || "/placeholder-user.svg"}
+                    alt={displayUser?.name || "Guest"}
+                    className={avatarImageClassName}
+                  />
+                  <AvatarFallback className="text-xs text-foreground">
+                    {displayUser ? displayUser.name.charAt(0).toUpperCase() : "G"}
+                  </AvatarFallback>
+                </Avatar>
+              </HoverIconButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{displayUser?.name || "Guest"}</p>
+                  {displayUser?.email && (
+                    <p className="text-xs leading-none text-muted-foreground">{displayUser.email}</p>
+                  )}
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </DropdownMenuItem>
+              {displayUser && (
                 <DropdownMenuItem
                   className="text-destructive"
                   onClick={() => signOut()}
@@ -104,17 +138,9 @@ export function Navbar() {
                   <LogOut className="mr-2 h-4 w-4" />
                   Sign out
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <HoverIconButton
-              onClick={() => setSettingsOpen(true)}
-              className="h-9 w-9"
-              title="Settings"
-            >
-              <Settings className="h-[18px] w-[18px]" />
-            </HoverIconButton>
-          )}
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       <ApiKeysSettings open={settingsOpen} onOpenChange={setSettingsOpen} />

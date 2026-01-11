@@ -231,11 +231,34 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
     // Server URL typically: https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp
 
     // Relay OAuth credentials if provided in the config or options
-    const headers: Record<string, string> = { ...(config.headers || {}) }
-
-    // Inject from config or options (options take priority during tool calls)
     const clientId = options?.googleOauthClientId || config.oauthClientId
     const clientSecret = options?.googleOauthClientSecret || config.oauthClientSecret
+
+    // Standard URL
+    let url = config.url || 'https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp'
+
+    // Relay tokens for stateless Cloud Run persistence (VIA QUERY PARAMS for robustness against header stripping)
+    // Priority: options > localStorage
+    if (typeof window !== 'undefined' || options?.googleOauthSessionId) {
+      const accessToken = options?.googleOauthAccessToken || (typeof window !== 'undefined' ? localStorage.getItem('google_workspace_access_token') : undefined)
+      const refreshToken = options?.googleOauthRefreshToken || (typeof window !== 'undefined' ? localStorage.getItem('google_workspace_refresh_token') : undefined)
+
+      const sessionId = options?.googleOauthSessionId || (typeof window !== 'undefined' ? localStorage.getItem('google_workspace_session_id') : undefined)
+
+      if (sessionId || accessToken) {
+        const params = new URLSearchParams()
+        if (sessionId) params.append("session_id", sessionId)
+        if (accessToken) params.append("access_token", accessToken)
+        if (refreshToken) params.append("refresh_token", refreshToken)
+
+        // Append to URL (handle existing query params)
+        url += (url.includes('?') ? '&' : '?') + params.toString()
+
+        console.log(`[Tools Helper] 🔗 Appended credentials to URL query params: ${params.toString()}`)
+      }
+    }
+
+    const headers: Record<string, string> = { ...(config.headers || {}) }
 
     // Fallback to localStorage if in browser (for system servers that aren't easily editable)
     let finalClientId = clientId
@@ -299,7 +322,7 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
     return {
       ...config,
       transport: 'http',
-      url: config.url || defaultUrl,
+      url: url,
       headers,
     }
   }
