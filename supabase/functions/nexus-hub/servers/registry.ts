@@ -7,7 +7,6 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { decryptConfig } from "../lib/vault.ts";
 import { ensureMapsConfig } from "./maps.ts";
 import { ensurePlaywrightConfig } from "./playwright.ts";
-import { ensureGoogleWorkspaceConfig } from "./google-workspace.ts";
 import { ensureNotionConfig } from "./notion.ts";
 import type { ServerConfig, SystemServerRecord, UserServerRecord } from "../lib/types.ts";
 
@@ -43,7 +42,7 @@ export async function getAllServers(
   } else {
     for (const server of (systemServers || []) as SystemServerRecord[]) {
       let config = server.config as ServerConfig;
-      
+
       // Apply server-specific config transformations
       if (server.id === 'maps') {
         try {
@@ -53,7 +52,7 @@ export async function getAllServers(
           continue; // Skip this server if config fails
         }
       }
-      
+
       if (server.id === 'playwright') {
         try {
           config = ensurePlaywrightConfig(config);
@@ -62,16 +61,7 @@ export async function getAllServers(
           continue; // Skip this server if config fails
         }
       }
-      
-      if (server.id === 'google-workspace') {
-        try {
-          config = ensureGoogleWorkspaceConfig(config);
-        } catch (error) {
-          console.error("Error configuring Google Workspace server:", error);
-          continue; // Skip this server if config fails
-        }
-      }
-      
+
       if (server.id === 'notion') {
         try {
           config = ensureNotionConfig(config);
@@ -80,7 +70,7 @@ export async function getAllServers(
           continue; // Skip this server if config fails
         }
       }
-      
+
       servers.push({
         id: server.id,
         refId: server.ref_id,
@@ -155,7 +145,7 @@ export async function getServerById(
 
     const server = data as SystemServerRecord;
     let config = server.config as ServerConfig;
-    
+
     // Apply server-specific config transformations
     if (server.id === 'maps') {
       try {
@@ -165,7 +155,7 @@ export async function getServerById(
         // Return config as-is if transformation fails
       }
     }
-    
+
     if (server.id === 'playwright') {
       try {
         config = ensurePlaywrightConfig(config);
@@ -174,16 +164,7 @@ export async function getServerById(
         // Return config as-is if transformation fails
       }
     }
-    
-    if (server.id === 'google-workspace') {
-      try {
-        config = ensureGoogleWorkspaceConfig(config);
-      } catch (error) {
-        console.error("Error configuring Google Workspace server:", error);
-        // Return config as-is if transformation fails
-      }
-    }
-    
+
     if (server.id === 'notion') {
       try {
         config = ensureNotionConfig(config);
@@ -192,7 +173,7 @@ export async function getServerById(
         // Return config as-is if transformation fails
       }
     }
-    
+
     return {
       id: server.id,
       refId: server.ref_id,
@@ -239,3 +220,4 @@ export async function getServerById(
     }
   }
 }
+

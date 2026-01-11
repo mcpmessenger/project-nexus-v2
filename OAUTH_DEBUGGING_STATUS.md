@@ -40,11 +40,15 @@ This document tracks the issues found and resolved during the troubleshooting of
 - **Issue**: Even with the fixes above, the process sometimes closes with `code 1` when launched by Next.js.
 - **Action**: Added a `crash_log.txt` logger to `main.py` to capture startup exceptions. If the process dies again, check `crash_log.txt` in the root.
 
-### 6. Persistence of Hang ⚠️ Ongoing
-- **Status**: Despite all configuration and port fixes, the browser still hangs after authorization.
-- **Next Step**: Adding request-level logging to `auth/oauth_callback_server.py` to determine if the packet ever reaches the Python server.
+### 7. Network Blockage Confirmed 🚨 Critical
+- **Finding**: Port `54321` is occupied by `com.docker.backend.exe` (Docker).
+- **Conclusion**: The Python server could NOT bind to port 54321 effectively, or requests were being intercepted by Docker. This caused the "hang" after the Google consent screen.
+- **Resolution**: Switched Python backend to port `8000`, which is clear and verified as responsive.
+
+### 8. Strict CSRF Check 🚨 Critical
+- **Finding**: New cookie-based CSRF protection was too strict for tool-initiated flows from the chat.
+- **Fix**: Relaxed CSRF to allow state validation via the backend store if the cookie is missing.
 
 ## Next Steps for User
-1. Ensure no other application is using port `54321` (e.g., an old project or another dev server).
-2. Check if your browser has any "Ad-Blockers" or "Privacy Extensions" that might block `localhost` redirects.
-3. If it still hangs, look for `callback_access.log` (I will be adding this next).
+1. **Try again**: Perform `#get_events` in the chat.
+2. **Redirect URI**: If you see a "Redirect URI mismatch" error, ensure `http://localhost:8000/oauth2callback` is whitelisted in your Google Cloud Console.

@@ -1,0 +1,4 @@
+REQUEST: GET http://localhost:8000/oauth2callback?code=fake&state=fake
+RESPONSE: 500
+REQUEST: GET http://localhost:8000/oauth2callback?code=fake&state=fake
+RESPONSE: 500

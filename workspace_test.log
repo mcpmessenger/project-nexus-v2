@@ -1,0 +1,21 @@
+﻿--- Focused Google Workspace Test ---
+Calling listTools()...
+[MCP Client] Fetching tools for google-workspace (http)...
+[MCP Client] Using REST transport for server: Google Workspace (https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp)
+[MCP Client] Making REST request to: https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp/mcp/invoke
+[MCP Client] Request body: {"jsonrpc":"2.0","id":"mcp-48c3d2b0-56bf-44ad-85e1-ef008abfd45c","method":"tools/list","params":{}}
+[MCP Client] Response status for google-workspace: 404 Not Found
+[MCP Client] Raw response body from google-workspace: {"detail":"Not Found"}
+[MCP Client] Request body sent to google-workspace: {"jsonrpc":"2.0","id":"mcp-48c3d2b0-56bf-44ad-85e1-ef008abfd45c","method":"tools/list","params":{}}
+[MCP Client] Request body sent: {"jsonrpc":"2.0","id":"mcp-48c3d2b0-56bf-44ad-85e1-ef008abfd45c","method":"tools/list","params":{}}
+[MCP Client] Response status: 404, body: {"detail":"Not Found"}
+npx : [MCP Client] Γ¥î Failed to fetch tools for google-workspace: MCP REST 
+transport responded with 404. Not Found
+At line:1 char:1
++ npx tsx test-workspace.ts 2>&1 | Out-File -FilePath workspace_test.lo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([MCP Client] Γ¥... 404. Not Found:St 
+   ring) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Tools found: 0

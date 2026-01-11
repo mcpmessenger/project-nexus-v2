@@ -2,6 +2,7 @@ import OpenAI from 'openai'
 import { McpClient, buildMcpConfig, type McpRouteConfigInput, type ToolSchema, ensureManagedGoogleConfig, validateManagedServerConfig } from './mcpClient'
 import { supabase } from './supabase-client'
 import { getAuthenticatedUser } from './get-user-session'
+import { pulsarClient } from './pulsar-client'
 
 /**
  * Log tool invocation metrics to database (non-blocking)
@@ -22,7 +23,7 @@ async function logToolMetric(params: {
     } catch (e) {
       // User not authenticated, continue without user_id
     }
-    
+
     await supabase.from('task_metrics').insert({
       user_id: userId,
       server_id: params.serverId,
@@ -106,7 +107,7 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       },
     }
   }
-  
+
   if (serverId === 'exa') {
     // Exa Search MCP server uses HTTP transport with x-api-key header
     // Prefer user-provided API key from options, then env var
@@ -127,7 +128,7 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       }
     }
   }
-  
+
   if (serverId === 'playwright') {
     // Ensure Playwright uses stdio transport with headless and isolated mode
     // Headless mode prevents browser window flashing and reduces resource contention
@@ -139,7 +140,7 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       args: ['@playwright/mcp@latest', '--headless', '--isolated'],
     }
   }
-  
+
   if (serverId === 'github') {
     // GitHub MCP server uses stdio transport
     // The MCP server requires GITHUB_PERSONAL_ACCESS_TOKEN as an environment variable
@@ -173,7 +174,7 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       },
     }
   }
-  
+
   if (serverId === 'notion') {
     // Notion MCP server uses stdio transport
     // The MCP server requires NOTION_API_KEY as an environment variable
@@ -199,7 +200,7 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       },
     }
   }
-  
+
   if (serverId === 'langchain') {
     // LangChain Agent MCP server uses REST/HTTP transport
     // Server URL: https://langchain-agent-mcp-server-554655392699.us-central1.run.app
@@ -211,7 +212,69 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       url: config.url || 'https://langchain-agent-mcp-server-554655392699.us-central1.run.app',
     }
   }
-  
+
+  const isGoogleWorkspace =
+    serverId === 'google-workspace' ||
+    serverId === 'google_workspace' ||
+    (config.name?.toLowerCase().includes('google') && config.name?.toLowerCase().includes('workspace')) ||
+    config.url?.includes('google-workspace-mcp-server')
+
+  if (isGoogleWorkspace) {
+    // Google Workspace MCP server uses REST/HTTP transport
+    // Server URL typically: https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp
+
+    // Relay OAuth credentials if provided in the config or options
+    const headers: Record<string, string> = { ...(config.headers || {}) }
+
+    // Inject from config or options (options take priority during tool calls)
+    const clientId = options?.googleOauthClientId || config.oauthClientId
+    const clientSecret = options?.googleOauthClientSecret || config.oauthClientSecret
+
+    // Fallback to localStorage if in browser (for system servers that aren't easily editable)
+    let finalClientId = clientId
+    let finalClientSecret = clientSecret
+
+    if (typeof window !== 'undefined' && (!finalClientId || !finalClientSecret)) {
+      finalClientId = finalClientId || localStorage.getItem('google_oauth_client_id') || undefined
+      finalClientSecret = finalClientSecret || localStorage.getItem('google_oauth_client_secret') || undefined
+      if (finalClientId) console.log('[Tools Helper] Injected Google Client ID from localStorage')
+    }
+
+    if (finalClientId) {
+      headers['X-Google-Client-Id'] = finalClientId
+    }
+    if (finalClientSecret) {
+      headers['X-Google-Client-Secret'] = finalClientSecret
+    }
+
+    // Inject session ID if available (for OAuth persistence)
+    const sessionId = options?.googleOauthSessionId
+    if (sessionId) {
+      headers['X-Session-ID'] = sessionId
+    } else if (typeof window !== 'undefined') {
+      const storedSessionId = localStorage.getItem('google_workspace_session_id')
+      if (storedSessionId) {
+        headers['X-Session-ID'] = storedSessionId
+      }
+
+      // Relay tokens for stateless Cloud Run persistence
+      const accessToken = localStorage.getItem('google_workspace_access_token')
+      const refreshToken = localStorage.getItem('google_workspace_refresh_token')
+      if (accessToken) headers['X-Google-Access-Token'] = accessToken
+      if (refreshToken) headers['X-Google-Refresh-Token'] = refreshToken
+    }
+
+    // Ensure we have the production URL if not provided
+    const defaultUrl = 'https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp'
+
+    return {
+      ...config,
+      transport: 'http',
+      url: config.url || defaultUrl,
+      headers,
+    }
+  }
+
   return config
 }
 
@@ -240,7 +303,7 @@ function convertToolToOpenAIFunction(
 
   // MCP tools can have schema or inputSchema
   const schemaSource = (tool.schema as any) || (tool as any).inputSchema || {}
-  
+
   if (schemaSource && typeof schemaSource === 'object') {
     // Check for properties directly or nested in schema
     const schemaProps = schemaSource.properties || (schemaSource as any).properties || {}
@@ -259,23 +322,23 @@ function convertToolToOpenAIFunction(
     type: 'object',
     properties: Object.keys(properties).length > 0 ? properties : {},
   }
-  
+
   if (required.length > 0) {
     parameters.required = required
   }
 
   // Enhance description to include slash command format - when user types /serverId, use these tools
-  let enhancedDescription = tool.description 
+  let enhancedDescription = tool.description
     ? `${tool.description} [MCP Server: /${serverId}]`
     : `${tool.name} tool from /${serverId} MCP server. When user requests /${serverId} or mentions ${serverId}, use this tool.`
-  
+
   // Special handling for Playwright screenshot tool
   if (serverId === 'playwright' && functionName === 'playwright_browser_take_screenshot') {
     // Make screenshot tool EXTREMELY prominent for screenshot requests
     // Put critical info first - AI models often prioritize early information
     enhancedDescription = `SCREENSHOT TOOL - USE THIS WHEN USER ASKS FOR SCREENSHOTS/IMAGES: This tool captures a visual PNG/image screenshot of the current browser page and returns base64 image data. When user says "screenshot", "take a screenshot", "show me", "capture", or requests any image/visual of a webpage, you MUST call this tool (playwright_browser_take_screenshot) after navigating. This is the ONLY tool that produces images. Do NOT use browser_snapshot, browser_select_option, or any other tool. ${enhancedDescription}`
   }
-  
+
   // Special handling for Maps tools
   if (serverId === 'maps' || serverId === GOOGLE_GROUNDING_ID) {
     // Make Maps tools highly prominent for location/place queries
@@ -283,7 +346,7 @@ function convertToolToOpenAIFunction(
       enhancedDescription = `🎯 MANDATORY FOR LOCATION QUERIES: ${enhancedDescription} When users ask about places, locations, businesses, or directions, you MUST call this tool to get structured data. Do NOT just return Google Maps links - use this tool to get actual place information.`
     }
   }
-  
+
   if (serverId === 'exa') {
     if (tool.name.toLowerCase().includes('web_search') || tool.name.toLowerCase().includes('search')) {
       enhancedDescription = `🔍 MANDATORY FOR SEARCH QUERIES AND /exa COMMANDS: ${enhancedDescription} When users type "/exa" followed by any text, or request a web search, you MUST call this tool (exa_web_search_exa or similar). DO NOT provide general knowledge - you MUST call this tool to get real, current search results. Example: User says "/exa ai developments in late 2025" → IMMEDIATELY call exa_web_search_exa with query="ai developments in late 2025".`
@@ -293,13 +356,13 @@ function convertToolToOpenAIFunction(
       enhancedDescription = `📰 MANDATORY FOR NEWS SEARCHES: ${enhancedDescription} When users request news searches or type "/exa" with news-related queries, use this tool.`
     }
   }
-  
+
   // Special handling for LangChain Agent tools
   if (serverId === 'langchain') {
     // Make LangChain tools EXTREMELY prominent for /langchain commands
     enhancedDescription = `🤖 MANDATORY FOR /langchain COMMANDS: ${enhancedDescription} When users type "/langchain" followed by ANY text, you MUST use this LangChain Agent tool. DO NOT use GitHub tools (github_search_repositories, github_get_repository, etc.), DO NOT use Exa Search, DO NOT use Playwright, DO NOT use Maps. You MUST call LangChain Agent tools (tools starting with "langchain_") to process the user's request. Example: User says "/langchain test" → IMMEDIATELY call this langchain_* tool, NOT github_search_repositories.`
   }
-  
+
   // Note: browser_snapshot is filtered out before reaching this point, so no need to handle it here
 
   const functionDef: OpenAI.Chat.Completions.ChatCompletionTool = {
@@ -310,7 +373,7 @@ function convertToolToOpenAIFunction(
       parameters,
     },
   }
-  
+
   return functionDef
 }
 
@@ -323,7 +386,7 @@ async function fetchToolsFromServer(
 ): Promise<ToolSchema[]> {
   try {
     console.log(`[Tools Helper] Attempting to fetch tools from server: ${server.id}`)
-    
+
     // Special check for Exa - verify API key is set before attempting to connect
     if (server.id === 'exa') {
       const apiKey = process.env.EXA_API_KEY
@@ -335,7 +398,7 @@ async function fetchToolsFromServer(
       }
       console.log(`[Tools Helper] ✅ EXA_API_KEY is set (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...)`)
     }
-    
+
     // Special check for GitHub - verify API key is set before attempting to connect
     if (server.id === 'github') {
       const apiKey = process.env.GITHUB_PERSONAL_ACCESS_TOKEN || process.env.GITHUB_TOKEN
@@ -347,16 +410,16 @@ async function fetchToolsFromServer(
       }
       console.log(`[Tools Helper] ✅ GITHUB_PERSONAL_ACCESS_TOKEN is set (length: ${apiKey.length}, starts with: ${apiKey.substring(0, 8)}...)`)
     }
-    
+
     // LangChain server uses REST transport - no special checks needed
     if (server.id === 'langchain') {
       console.log(`[Tools Helper] ✅ LangChain Agent server configured (REST transport)`)
     }
-    
+
     let config = server.config as McpRouteConfigInput
     config.id = server.id
     config.name = server.name
-    
+
     // Apply server-specific config transformations
     config = applyServerConfig(server.id, config)
     if (
@@ -373,16 +436,16 @@ async function fetchToolsFromServer(
         console.log(`[Tools Helper] Added Maps Project ID to headers for tools/list: ${options.googleMapsProjectId}`)
       }
     }
-    console.log(`[Tools Helper] Server ${server.id} config:`, JSON.stringify({ 
-      transport: config.transport, 
-      command: config.command, 
+    console.log(`[Tools Helper] Server ${server.id} config:`, JSON.stringify({
+      transport: config.transport,
+      command: config.command,
       hasArgs: !!config.args,
       argsCount: config.args?.length || 0,
       hasAuthorization: !!config.headers?.Authorization,
     }))
-    
+
     let mcpConfig = buildMcpConfig(config)
-    
+
     // Apply Google Maps config if needed (check both "maps" and "google-maps-grounding")
     if (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID) {
       try {
@@ -392,10 +455,10 @@ async function fetchToolsFromServer(
         console.warn(`[Tools Helper] Warning: ${server.id} API key not configured. Tools may not work.`, error instanceof Error ? error.message : error)
       }
     }
-    
+
     validateManagedServerConfig(mcpConfig)
     const client = new McpClient(mcpConfig)
-    
+
     console.log(`[Tools Helper] Calling listTools() for ${server.id}...`)
     let tools: ToolSchema[] = []
     try {
@@ -460,13 +523,13 @@ export async function getAvailableToolsAsOpenAIFunctions(
 
     // Flatten and convert to OpenAI format
     const openAIFunctions: OpenAI.Chat.Completions.ChatCompletionTool[] = []
-    
+
     for (let i = 0; i < servers.length; i++) {
       const server = servers[i] as SystemServer
       const tools = toolArrays[i]
-      
+
       console.log(`[Tools Helper] Server ${server.id}: ${tools.length} tools`)
-      
+
       // Log all Playwright tool names for debugging
       if (server.id === 'playwright') {
         const toolNames = tools.map(t => t.name).sort()
@@ -478,7 +541,7 @@ export async function getAvailableToolsAsOpenAIFunctions(
           console.warn(`[Tools Helper] ⚠️ browser_take_screenshot tool NOT found in Playwright tools!`)
         }
       }
-      
+
       if (server.id === 'exa') {
         if (tools.length === 0) {
           console.warn(`[Tools Helper] ⚠️ Exa Search returned 0 tools! This usually means the MCP endpoint or credentials failed. Check https://docs.exa.ai for troubleshooting.`)
@@ -491,7 +554,7 @@ export async function getAvailableToolsAsOpenAIFunctions(
           }
         }
       }
-      
+
       // Log all GitHub tool names for debugging
       if (server.id === 'github') {
         if (tools.length === 0) {
@@ -511,7 +574,7 @@ export async function getAvailableToolsAsOpenAIFunctions(
           }
         }
       }
-      
+
       // Log LangChain tool names for debugging
       if (server.id === 'langchain') {
         if (tools.length === 0) {
@@ -542,7 +605,17 @@ export async function getAvailableToolsAsOpenAIFunctions(
           console.log(`[Tools Helper] ✅ LangChain Agent tool names (from /tools endpoint): ${toolNames.join(', ')}`)
         }
       }
-      
+
+      // Log all Google Workspace tool names for debugging
+      if (server.id === 'google-workspace') {
+        if (tools.length === 0) {
+          console.warn(`[Tools Helper] ⚠️ Google Workspace returned 0 tools! Check if the Cloud Run service is active and accessible.`)
+        } else {
+          const toolNames = tools.map(t => t.name).sort()
+          console.log(`[Tools Helper] Google Workspace tool names: ${toolNames.join(', ')}`)
+        }
+      }
+
       for (const tool of tools) {
         try {
           // STRUCTURAL ENFORCEMENT: Hard filter - Remove browser_snapshot entirely from tool list
@@ -550,10 +623,10 @@ export async function getAvailableToolsAsOpenAIFunctions(
             console.log(`[Tools Helper] 🚫 PERMANENTLY FILTERING: ${server.id}_${tool.name} - removed from available tools (use browser_take_screenshot for images)`)
             continue
           }
-          
+
           const openAIFunc = convertToolToOpenAIFunction(tool, server.id)
           openAIFunctions.push(openAIFunc)
-          
+
           // Log when we add the screenshot tool
           if (server.id === 'playwright' && tool.name === 'browser_take_screenshot') {
             console.log(`[Tools Helper] ✅ Added playwright_browser_take_screenshot to OpenAI functions`)
@@ -596,6 +669,9 @@ interface InvokeToolOptions {
   notionApiKey?: string | null
   githubToken?: string | null
   exaApiKey?: string | null
+  googleOauthClientId?: string | null
+  googleOauthClientSecret?: string | null
+  googleOauthSessionId?: string | null
 }
 
 export async function invokeToolByName(
@@ -642,7 +718,7 @@ export async function invokeToolByName(
   let config = server.config as McpRouteConfigInput
   config.id = server.id
   config.name = server.name
-  
+
   // For Maps servers, set user-provided key and project ID FIRST (before applyServerConfig)
   // so they take precedence over env vars
   if (
@@ -660,10 +736,10 @@ export async function invokeToolByName(
     }
     console.log(`[Tools Helper] Using user-provided Maps API key (length: ${options.googleMapsApiKey.trim().length})`)
   }
-  
+
   // Apply server-specific config transformations
   config = applyServerConfig(server.id, config, options)
-  
+
   // Ensure user-provided key and project ID are still set (applyServerConfig might have overwritten them)
   if (
     options?.googleMapsApiKey &&
@@ -681,9 +757,9 @@ export async function invokeToolByName(
     }
     console.log(`[Tools Helper] ✅ Set user-provided Maps API key in headers (length: ${trimmedKey.length}, starts with: ${trimmedKey.substring(0, 10)}...)`)
   }
-  
+
   let mcpConfig = buildMcpConfig(config)
-  
+
   // Apply Google Maps config if needed (check both "maps" and "google-maps-grounding")
   // ensureManagedGoogleConfig will prefer the header key if it exists
   if (server.id === 'maps' || server.id === GOOGLE_GROUNDING_ID) {
@@ -699,9 +775,9 @@ export async function invokeToolByName(
       console.warn(`[Tools Helper] Warning: ${server.id} API key not configured. Tools may not work.`, error instanceof Error ? error.message : error)
     }
   }
-  
+
   validateManagedServerConfig(mcpConfig)
-  
+
   // Enhance Playwright navigation arguments to wait for network idle
   let enhancedArgs = args
   if (serverId === 'playwright') {
@@ -710,19 +786,19 @@ export async function invokeToolByName(
       console.log(`[Tools Helper] Enhanced Playwright navigation args:`, enhancedArgs)
     }
   }
-  
+
   // GitHub-specific: Fix "user:me", "user:ACTUAL_USERNAME", or empty queries to use actual authenticated username
   if (serverId === 'github' && toolName === 'search_repositories') {
     const query = enhancedArgs.query ? String(enhancedArgs.query) : ''
     // Check if query contains placeholder text, "user:me", is empty, or needs the actual username
-    const needsFix = !query || 
-                     query.trim() === '' ||
-                     query.includes('user:me') || 
-                     query === 'user:me' || 
-                     query.includes('user:@me') ||
-                     query.includes('ACTUAL_USERNAME') ||
-                     query.includes('USERNAME') && query.includes('user:')
-    
+    const needsFix = !query ||
+      query.trim() === '' ||
+      query.includes('user:me') ||
+      query === 'user:me' ||
+      query.includes('user:@me') ||
+      query.includes('ACTUAL_USERNAME') ||
+      query.includes('USERNAME') && query.includes('user:')
+
     if (needsFix) {
       console.log(`[Tools Helper] 🔧 Intercepting GitHub search_repositories with query: "${query}", fetching actual username...`)
       const actualUsername = await getGitHubUsername()
@@ -737,10 +813,10 @@ export async function invokeToolByName(
       }
     }
   }
-  
+
   // Create MCP client and invoke tool
   const client = new McpClient(mcpConfig)
-  
+
   // Check if the tool name already includes the server prefix
   // Some MCP servers (like Exa) return tools with names like "exa_web_search_exa"
   // In that case, we need to use the full functionName, not the parsed toolName
@@ -749,7 +825,7 @@ export async function invokeToolByName(
     console.log(`[Tools Helper] Fetching tools from ${serverId} to verify tool name "${toolName}"...`)
     const availableTools = await client.listTools()
     console.log(`[Tools Helper] Available tools from ${serverId}:`, availableTools.map(t => t.name).join(', '))
-    
+
     // Check if functionName exactly matches a tool name (e.g., "brave_web_search")
     const exactMatch = availableTools.find(t => t.name === functionName)
     if (exactMatch) {
@@ -787,20 +863,40 @@ export async function invokeToolByName(
       console.log(`[Tools Helper] Using hardcoded LangChain tool name as fallback: "${actualToolName}"`)
     }
   }
-  
+
   console.log(`[Tools Helper] Invoking tool: ${serverId}_${actualToolName} with args:`, JSON.stringify(enhancedArgs).substring(0, 200))
-  
+
   // Track metrics: start time
   const startTime = Date.now()
   let executionStatus: 'success' | 'failed' = 'success'
   let errorMessage: string | null = null
-  
+
   try {
-    const response = await client.call('tools/call', {
-      name: actualToolName,
-      arguments: enhancedArgs,
+    // Prepare MCP payload for Pulsar routing
+    const mcpPayload = {
+      jsonrpc: "2.0",
+      id: crypto.randomUUID(),
+      method: "tools/call",
+      params: {
+        name: actualToolName,
+        arguments: enhancedArgs,
+      }
+    }
+
+    // Get user session for org/user context
+    const user = await getAuthenticatedUser().catch(() => null)
+    const userId = user?.id || "anonymous-user"
+    const orgId = serverId // Using serverId as mock orgId for now
+
+    // Route through Pulsar
+    const response = await pulsarClient.invokeTool(mcpPayload, orgId, userId, async () => {
+      // The actual execution (the "Worker")
+      return await client.call('tools/call', {
+        name: actualToolName,
+        arguments: enhancedArgs,
+      })
     })
-    
+
     if (response.error) {
       const errorMsg = response.error.message || `Failed to invoke tool ${functionName}`
       console.error(`[Tools Helper] ❌ Tool call error:`, errorMsg)
@@ -809,15 +905,15 @@ export async function invokeToolByName(
       errorMessage = errorMsg
       throw new Error(errorMsg)
     }
-    
+
     let result = response.result
-    
+
     // Add Windows buffer delay after screenshot operations to allow frame buffer to capture
     if (serverId === 'playwright' && toolName === 'browser_take_screenshot' && process.platform === 'win32') {
       console.log(`[Tools Helper] Adding Windows buffer delay after screenshot...`)
       await new Promise(resolve => setTimeout(resolve, 1000)) // 1 second delay for Windows
     }
-    
+
     // Log successful tool invocation to metrics (non-blocking)
     const executionTime = Date.now() - startTime
     logToolMetric({
@@ -828,7 +924,7 @@ export async function invokeToolByName(
     }).catch(err => {
       console.warn(`[Tools Helper] Failed to log metric:`, err)
     })
-    
+
     return result
   } catch (error) {
     // Log failed tool invocation to metrics (non-blocking)
@@ -843,7 +939,7 @@ export async function invokeToolByName(
     }).catch(err => {
       console.warn(`[Tools Helper] Failed to log metric:`, err)
     })
-    
+
     throw error
   }
 }

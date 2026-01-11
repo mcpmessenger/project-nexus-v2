@@ -61,13 +61,13 @@ export async function POST(request: Request) {
         }
 
         const result = await client.call(payload.method, payload.params ?? {})
-        
+
         // Report usage to Stripe (non-blocking)
         // Extract user ID from session - for now using mock user, in production get from auth
         const userId = payload.userId || "user-123" // TODO: Get from actual auth session
         const serverId = config.id || "unknown"
         const toolName = payload.method.replace("tools/call", "").replace("/", "") || "unknown"
-        
+
         // Report usage asynchronously (don't await to avoid blocking response)
         reportToolCallUsage({
           userId,
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
           console.error("Failed to report usage:", error)
           // Non-blocking - continue even if reporting fails
         })
-        
+
         return NextResponse.json({ result })
       }
 
@@ -105,6 +105,10 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error"
+    console.error("[API MCP] Error:", error)
+    if (error instanceof Error && error.stack) {
+      console.error("[API MCP] Stack Trace:", error.stack)
+    }
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
