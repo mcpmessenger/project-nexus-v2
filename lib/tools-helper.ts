@@ -224,7 +224,8 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
     serverId === 'google-workspace' ||
     serverId === 'google_workspace' ||
     (config.name?.toLowerCase().includes('google') && config.name?.toLowerCase().includes('workspace')) ||
-    config.url?.includes('google-workspace-mcp-server')
+    config.url?.includes('google-workspace-mcp-server') ||
+    !!options?.googleOauthSessionId
 
   if (isGoogleWorkspace) {
     // Google Workspace MCP server uses REST/HTTP transport
@@ -234,8 +235,21 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
     const clientId = options?.googleOauthClientId || config.oauthClientId
     const clientSecret = options?.googleOauthClientSecret || config.oauthClientSecret
 
-    // Standard URL
-    let url = config.url || 'https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp'
+    // Standard URL - Default to localhost in development for testing fixes
+    const workspaceDefaultUrl = process.env.NODE_ENV === 'development'
+      ? 'http://localhost:8081/mcp'
+      : 'https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp'
+
+    // FORCE local URL in development to avoid hitting deployed server without fixes
+    // Reverting forced local for deployment testing
+    let url = (process.env.NODE_ENV === 'development') ? workspaceDefaultUrl : (config.url || workspaceDefaultUrl)
+
+    // Explicit debug log for URL selection
+    console.log(`[Tools Helper] 🔗 URL Selection for Google Workspace:`)
+    console.log(`  - NODE_ENV: ${process.env.NODE_ENV}`)
+    console.log(`  - Config URL: ${config.url}`)
+    // console.log(`  - FORCE LOCAL: ${isDev}`)
+    console.log(`  - Final URL: ${url}`)
 
     // Relay tokens for stateless Cloud Run persistence (VIA QUERY PARAMS for robustness against header stripping)
     // Priority: options > localStorage
@@ -244,6 +258,9 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       const refreshToken = options?.googleOauthRefreshToken || (typeof window !== 'undefined' ? localStorage.getItem('google_workspace_refresh_token') : undefined)
 
       const sessionId = options?.googleOauthSessionId || (typeof window !== 'undefined' ? localStorage.getItem('google_workspace_session_id') : undefined)
+
+      // Explicit debug log before injection
+      console.log(`[Tools Helper] 🔍 DEBUG: Preparing headers for Google Workspace. SessionID: ${sessionId || "MISSING"}`)
 
       if (sessionId || accessToken) {
         const params = new URLSearchParams()

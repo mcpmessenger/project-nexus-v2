@@ -303,7 +303,13 @@ export default function WorkflowsPage() {
         }
 
         if (event.data.session_id) {
+          console.log(`[Workflows] 🔑 Received OAuth Session ID: ${event.data.session_id}`);
           localStorage.setItem('google_workspace_session_id', event.data.session_id);
+          // Verify storage
+          const stored = localStorage.getItem('google_workspace_session_id');
+          console.log(`[Workflows] ✅ Verified Storage Session ID: ${stored}`);
+        } else {
+          console.warn(`[Workflows] ⚠️ Received oauth_success but NO session_id in data!`, event.data);
         }
 
         // Refresh server list and health
@@ -862,6 +868,8 @@ export default function WorkflowsPage() {
         googleOauthSessionId = localStorage.getItem("google_workspace_session_id")
         googleOauthAccessToken = localStorage.getItem("google_workspace_access_token")
         googleOauthRefreshToken = localStorage.getItem("google_workspace_refresh_token")
+
+        console.log(`[Workflows] 📤 Sending request with Session ID: ${googleOauthSessionId || "MISSING from LocalStorage"}`)
       }
 
       // Call the API with streaming support for tool execution tracking
@@ -1358,7 +1366,6 @@ export default function WorkflowsPage() {
                                 key={index}
                                 href={finalUrl}
                                 target="_blank"
-                                rel="noopener noreferrer"
                                 className="text-primary underline hover:text-primary/80 break-all"
                               >
                                 {text}
@@ -1376,7 +1383,6 @@ export default function WorkflowsPage() {
                                   key={`${index}-${subIndex}`}
                                   href={finalUrl}
                                   target="_blank"
-                                  rel="noopener noreferrer"
                                   className="text-primary underline hover:text-primary/80 break-all"
                                 >
                                   {subPart}

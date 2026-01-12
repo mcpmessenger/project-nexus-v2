@@ -44,9 +44,13 @@ export async function GET(request: Request) {
         maxAge: 60 * 60 * 24 * 30, // 30 days
         path: "/",
       })
+
+      // Redirect to workflows page with tokens in hash so client can hydrate session
+      const { access_token, refresh_token } = data.session
+      return NextResponse.redirect(new URL(`/workflows#access_token=${access_token}&refresh_token=${refresh_token}&type=recovery`, requestUrl.origin))
     }
   }
 
-  // Redirect to home page after successful auth
-  return NextResponse.redirect(new URL("/", requestUrl.origin))
+  // Fallback
+  return NextResponse.redirect(new URL("/workflows", requestUrl.origin))
 }
