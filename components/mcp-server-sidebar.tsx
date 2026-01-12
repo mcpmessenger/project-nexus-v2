@@ -22,6 +22,7 @@ interface McpServerSidebarProps {
   servers: ServerStatus[]
   isOpen: boolean
   onToggle: () => void
+  onConnect?: (serverId: string) => void
   className?: string
 }
 
@@ -29,6 +30,7 @@ export function McpServerSidebar({
   servers,
   isOpen,
   onToggle,
+  onConnect,
   className,
 }: McpServerSidebarProps) {
   const [expandedServers, setExpandedServers] = React.useState<Set<string>>(new Set())
@@ -163,14 +165,30 @@ export function McpServerSidebar({
                                 "text-xs",
                                 server.status === "connected" && "border-green-500 text-green-600",
                                 (server.status === "latency" || server.status === "executing") &&
-                                  "border-yellow-500 text-yellow-600",
+                                "border-yellow-500 text-yellow-600",
                                 server.status === "disconnected" &&
-                                  "border-red-500 text-red-600"
+                                "border-red-500 text-red-600"
                               )}
                             >
                               {getStatusLabel(server.status)}
                             </Badge>
                           </div>
+
+                          {/* Connect Button for Google Workspace */}
+                          {onConnect && (server.id === "google-workspace" || server.id === "google workspace" || server.id === "workspace") && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full text-xs h-7"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onConnect(server.id)
+                              }}
+                            >
+                              <Zap className="mr-2 h-3 w-3" />
+                              {server.status === "disconnected" ? "Connect" : "Reconnect"}
+                            </Button>
+                          )}
 
                           {server.lastResponseTime !== undefined && (
                             <div className="flex items-center justify-between text-xs">
@@ -318,9 +336,9 @@ export function McpServerSidebar({
                               "text-xs",
                               server.status === "connected" && "border-green-500 text-green-600",
                               (server.status === "latency" || server.status === "executing") &&
-                                "border-yellow-500 text-yellow-600",
+                              "border-yellow-500 text-yellow-600",
                               server.status === "disconnected" &&
-                                "border-red-500 text-red-600"
+                              "border-red-500 text-red-600"
                             )}
                           >
                             {getStatusLabel(server.status)}

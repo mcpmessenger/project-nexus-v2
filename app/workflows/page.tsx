@@ -1663,6 +1663,31 @@ export default function WorkflowsPage() {
         servers={serverStatuses}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onConnect={(serverId) => {
+          if (serverId === "google-workspace" || serverId === "google workspace") {
+            // Check for existing session or generate new one
+            let sessionId = localStorage.getItem('google_workspace_session_id');
+            if (!sessionId) {
+              sessionId = generateUUID();
+              localStorage.setItem('google_workspace_session_id', sessionId);
+            }
+
+            // Use the known deployed Cloud Run URL
+            const authUrl = `https://google-workspace-mcp-server-554655392699.us-central1.run.app/oauth/authorize?session_id=${sessionId}`;
+            console.log(`[Workflows] Initiating manual connection to: ${authUrl}`);
+
+            const width = 600;
+            const height = 700;
+            const left = window.screen.width / 2 - width / 2;
+            const top = window.screen.height / 2 - height / 2;
+
+            window.open(
+              authUrl,
+              'GoogleWorkspaceAuth',
+              `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`
+            );
+          }
+        }}
       />
 
       {/* Camera Capture Modal */}
