@@ -241,8 +241,15 @@ function applyServerConfig(serverId: string, config: McpRouteConfigInput, option
       : 'https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp'
 
     // FORCE local URL in development to avoid hitting deployed server without fixes
-    // Reverting forced local for deployment testing
-    let url = (process.env.NODE_ENV === 'development') ? workspaceDefaultUrl : (config.url || workspaceDefaultUrl)
+    // In production, ensure we NEVER use localhost, even if config says so (e.g. from old DB entries)
+    let url = (config.url || workspaceDefaultUrl)
+    if (process.env.NODE_ENV === 'production' && url.includes('localhost')) {
+      console.warn(`[Tools Helper] ⚠️ Detected localhost URL in production config. Forcing Cloud Run URL.`)
+      url = 'https://google-workspace-mcp-server-554655392699.us-central1.run.app/mcp'
+    } else if (process.env.NODE_ENV === 'development') {
+      // In dev, prefer localhost
+      url = workspaceDefaultUrl
+    }
 
     // Explicit debug log for URL selection
     console.log(`[Tools Helper] 🔗 URL Selection for Google Workspace:`)
