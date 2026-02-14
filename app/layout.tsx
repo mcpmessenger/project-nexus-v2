@@ -124,6 +124,8 @@ export const viewport: Viewport = {
   ],
 }
 
+import { ChatConcierge } from "@/components/chat-concierge"
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -134,6 +136,7 @@ export default function RootLayout({
       <body className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <ThemeProvider>
           {children}
+          <ChatConcierge />
           <footer className="py-6 border-t border-border mt-auto">
             <div className="container mx-auto px-4 flex flex-col md:flex-row justify-between items-center text-sm text-muted-foreground gap-4">
               <div className="flex gap-4">
